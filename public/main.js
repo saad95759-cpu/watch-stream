@@ -1520,6 +1520,16 @@ function initRoom(roomId) {
     setTimeout(() => showExtractStatus("", null), 5000);
   }
 
+  // دالة تحويل الثواني لدقائق وثواني
+  function formatDuration(seconds) {
+    if (!seconds) return "";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
+
   function renderStreamResults(data) {
     const streams = data.streams || [];
     if (!streams.length) { showPasteStatus(data.error || "No streams found.", "error"); return; }
@@ -1536,7 +1546,14 @@ function initRoom(roomId) {
       });
     }
     if (scannerResults) scannerResults.hidden = false;
-    showPasteStatus(`Found ${streams.length} stream${streams.length > 1 ? "s" : ""}${data.title ? ` for "${data.title}"` : ""}. Click one to load it.`, "ok");
+
+    // تجهيز وقت الفيديو لعرضه
+    let durationText = "";
+    if (data.duration) {
+      durationText = ` ⏱️ (${formatDuration(data.duration)})`;
+    }
+
+    showPasteStatus(`Found ${streams.length} stream${streams.length > 1 ? "s" : ""}${data.title ? ` for "${data.title}"${durationText}` : ""}. Click one to load it.`, "ok");
   }
 
   async function doScanUrl(url) {
