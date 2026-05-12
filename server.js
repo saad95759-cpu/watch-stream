@@ -91,15 +91,10 @@ const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const YTDLP_WRAPPER = path.join(SERVER_DIR, "bin", "extract.py");
 const BROWSER_EXTRACTOR = path.join(SERVER_DIR, "bin", "browser_extract.mjs");
 
-// Sites whose CDN segments are IP-locked but whose pages CAN be fetched and
-// extracted by yt-dlp (which returns direct MP4 URLs, not HLS segments).
-// We no longer block these — we let yt-dlp handle them.
 function isIpBlockedHost(_url) {
-  return false; // previously blocked pornhub.com, but yt-dlp handles it fine
+  return false; 
 }
 
-// Concurrency limit: a Chromium instance is heavyweight (~250 MB RSS).
-// Allow at most one in-flight browser extraction at a time to avoid OOM/DoS.
 let __browserExtractInFlight = 0;
 const BROWSER_EXTRACT_MAX_CONCURRENT = 1;
 
@@ -164,8 +159,6 @@ function ytDlpExtract(url) {
   });
 }
 
-// Parse ALL yt-dlp formats into the streams[] shape used by the Stream Scanner.
-// Returns an array sorted by quality desc (video formats first, then audio-only).
 function ytDlpFormatsToStreams(info) {
   const formats = Array.isArray(info?.formats) ? info.formats : [];
   const duration = info?.duration || 0;
@@ -175,9 +168,7 @@ function ytDlpFormatsToStreams(info) {
   for (const f of formats) {
     if (!f?.url) continue;
     if (seen.has(f.url)) continue;
-    // Skip audio-only formats
     if (f.vcodec === "none" && f.acodec !== "none") continue;
-    // Skip formats with no video codec info at all if we already have video ones
     seen.add(f.url);
 
     const height = f.height || 0;
@@ -186,7 +177,6 @@ function ytDlpFormatsToStreams(info) {
     const isDash = (f.protocol || "").includes("dash") || (f.url || "").includes(".mpd");
     const type = isHls ? "hls" : isDash ? "dash" : "mp4";
 
-    // Estimate data usage: bitrate (kbps) × duration (s) ÷ 8 ÷ 1024 = MB
     let sizeMb = null;
     if (f.filesize) {
       sizeMb = Math.round(f.filesize / 1024 / 1024);
@@ -208,19 +198,16 @@ function ytDlpFormatsToStreams(info) {
     });
   }
 
-  // Also include the single top-level url if no formats
   if (streams.length === 0 && info?.url) {
     streams.push({ url: info.url, type: detectStreamType(info.url), quality: null, label: "stream" });
   }
 
-  // Sort: by height desc, then tbr desc
   streams.sort((a, b) => {
     const ha = parseInt(a.quality, 10) || 0;
     const hb = parseInt(b.quality, 10) || 0;
     return (hb - ha) || ((b.tbr || 0) - (a.tbr || 0));
   });
 
-  // Deduplicate by label (keep best url per quality tier)
   const labelSeen = new Set();
   return streams.filter((s) => {
     const key = s.quality || s.label;
@@ -258,12 +245,11 @@ function pickBestStream(info) {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const rawPort = process.env.PORT;
-if (!rawPort) throw new Error("PORT environment variable is required");
+const rawPort = process.env.PORT || "10000";
 const PORT = Number(rawPort);
-if (!Number.isInteger(PORT) || PORT <= 0) throw new Error(`Invalid PORT: ${rawPort}`);
 
-let BASE_PATH = process.env.BASE_PATH || "/";
+// --- التعديل هنا: توحيد المسار الأساسي ليطابق الواجهة ---
+let BASE_PATH = process.env.BASE_PATH || "/watch-party/";
 if (!BASE_PATH.endsWith("/")) BASE_PATH += "/";
 
 const ADMIN_USERNAME = "Admin1963";
@@ -290,6 +276,10 @@ app.get(BASE_PATH, sendIndex);
 app.get(`${BASE_PATH}r/:roomId`, sendIndex);
 app.get(`${BASE_PATH}healthz`, (_req, res) => res.json({ status: "ok" }));
 
+// --- التعديل هنا: تحويل الرابط الرئيسي ليفتح التطبيق فوراً ---
+app.get("/", (req, res) => res.redirect(BASE_PATH));
+
+
 app.post(`${BASE_PATH}api/extract`, async (req, res) => {
   const url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
   if (!url || !/^https?:\/\//i.test(url)) {
@@ -312,7 +302,6 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
   if (cached && Date.now() - cached.t < EXTRACT_TTL_MS) {
     return res.json(cached.data);
   }
-  // Fast path: fetch the page HTML and scan for embedded stream URLs before running yt-dlp.
   try {
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 10000);
@@ -350,8 +339,6 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
     try {
       info = await ytDlpExtract(url);
     } catch (ytErr) {
-      // Fallback: drive a real headless browser to capture the stream URL from
-      // network traffic. Helps on sites that defeat scrapers with JS rendering.
       const browserResult = await browserExtract(url).catch(() => null);
       if (browserResult?.streamUrl) {
         const data = {
@@ -367,9 +354,6 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
         return res.json(data);
       }
       throw ytErr;
-    }
-    if (info?.is_live === true) {
-      // live streams: prefer manifest URL
     }
     const best = pickBestStream(info);
     if (!best || !best.url) {
@@ -398,15 +382,6 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// Paste-source extractor: parse a page HTML blob the user copied from THEIR
-// browser (which can reach sites that block this server's IP). Pulls the
-// stream URL out of common embed patterns, starting with PornHub-style
-// `flashvars_<id> = {...}` JSON.
-// ---------------------------------------------------------------------------
-
-// Extract a balanced JSON object (or array) starting at index `i` in `s`.
-// Returns the raw substring or null on failure. Handles strings + escapes.
 function sliceBalancedJson(s, i) {
   const open = s[i];
   const close = open === "{" ? "}" : open === "[" ? "]" : null;
@@ -434,7 +409,6 @@ function sliceBalancedJson(s, i) {
 
 function pickFromMediaDefinitions(mediaDefs) {
   if (!Array.isArray(mediaDefs)) return null;
-  // Prefer HLS master playlist, then progressive MP4 by quality.
   const withUrl = mediaDefs.filter((m) => m && typeof m.videoUrl === "string" && m.videoUrl);
   const hls = withUrl.find((m) => /hls/i.test(m.format || "") || /\.m3u8(\?|$)/i.test(m.videoUrl));
   if (hls) return { url: hls.videoUrl, type: "hls" };
@@ -446,7 +420,6 @@ function pickFromMediaDefinitions(mediaDefs) {
   return null;
 }
 
-// Returns all streams found in raw HTML with quality labels, sorted best-first.
 function scanHtmlForStreams(html) {
   if (typeof html !== "string" || !html) return { streams: [], error: "Empty input." };
 
@@ -487,7 +460,6 @@ function scanHtmlForStreams(html) {
     if (titleOverride && !title) title = titleOverride;
   }
 
-  // 1) PornHub-style: var flashvars_<id> = { ... }
   const fvIdx = html.search(/var\s+flashvars_\d+\s*=\s*\{/);
   if (fvIdx !== -1) {
     const braceIdx = html.indexOf("{", fvIdx);
@@ -500,7 +472,6 @@ function scanHtmlForStreams(html) {
     }
   }
 
-  // 2) Bare mediaDefinitions array anywhere in HTML
   if (streams.length === 0) {
     const mdIdx = html.search(/"mediaDefinitions"\s*:\s*\[/);
     if (mdIdx !== -1) {
@@ -512,7 +483,6 @@ function scanHtmlForStreams(html) {
     }
   }
 
-  // 3) Fallback: regex scan for naked stream URLs
   if (streams.length === 0) {
     const seen = new Set();
     for (const m of html.matchAll(/https?:\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/gi)) {
@@ -527,11 +497,9 @@ function scanHtmlForStreams(html) {
     }
   }
 
-  // Deduplicate by URL
   const seen = new Set();
   const unique = streams.filter((s) => { if (seen.has(s.url)) return false; seen.add(s.url); return true; });
 
-  // Sort: HLS first, then by quality desc
   unique.sort((a, b) => {
     if (a.type === "hls" && b.type !== "hls") return -1;
     if (b.type === "hls" && a.type !== "hls") return 1;
@@ -542,7 +510,6 @@ function scanHtmlForStreams(html) {
   return { streams: unique, title, sourcePage };
 }
 
-// Backward-compat wrapper used by extract-from-html (returns single best stream)
 function parsePastedHtml(html) {
   const { streams, error, title, sourcePage } = scanHtmlForStreams(html);
   if (error && streams.length === 0) return { error };
@@ -550,15 +517,8 @@ function parsePastedHtml(html) {
   return { streamUrl: best.url, type: best.type, title, sourcePage, allStreams: streams };
 }
 
-// ── HLS / DASH proxy ──────────────────────────────────────────────────────────
-// Fetches manifests and segments server-side so the browser never hits a
-// CDN that rejects cross-origin requests. Rewrites m3u8 URL lines so all
-// subsequent segment fetches also flow through this proxy.
-
 function rewriteM3u8(text, baseUrl, proxyPath, ref) {
   const base = new URL(baseUrl);
-  // Use a root-relative path so HLS.js resolves against the browser's own
-  // origin (not localhost which is inaccessible from the browser).
   const mkProxyUrl = (abs) =>
     `${proxyPath}?url=${encodeURIComponent(abs)}&ref=${encodeURIComponent(ref)}`;
   return text.split("\n").map((line) => {
@@ -583,7 +543,6 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
   try { parsed = new URL(rawUrl); } catch { return res.status(400).send("Invalid URL"); }
   if (!["http:", "https:"].includes(parsed.protocol)) return res.status(400).send("Only http/https allowed");
 
-  // SSRF guard
   try {
     const addrs = await dns.resolve(parsed.hostname).catch(() => []);
     if (!addrs.length) { const a4 = await dns.resolve4(parsed.hostname).catch(() => []); addrs.push(...a4); }
@@ -593,7 +552,6 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
   } catch { return res.status(502).send("DNS error"); }
 
   const referer = typeof req.query.ref === "string" && req.query.ref ? req.query.ref : (parsed.origin + "/");
-  // Root-relative so HLS.js resolves it against whatever origin the browser is on
   const proxyPath = `/${BASE_PATH.replace(/^\//, "")}api/hls-proxy`;
 
   try {
@@ -626,7 +584,6 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
       return res.send(rewritten);
     }
 
-    // Segment / other binary — stream through
     res.setHeader("Content-Type", ct || "application/octet-stream");
     const cl = upstream.headers.get("content-length");
     if (cl) res.setHeader("Content-Length", cl);
@@ -646,9 +603,6 @@ app.post(`${BASE_PATH}api/extract-from-html`, (req, res) => {
   res.json(result);
 });
 
-// Fetch a URL server-side and scan it for ALL stream URLs with quality labels.
-// Step 1: fast HTML fetch + regex scan (works for most sites).
-// Step 2: yt-dlp fallback (handles PH, YouTube, Twitch, etc. — returns all qualities with size estimates).
 app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
   const url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
   if (!url || !/^https?:\/\//i.test(url)) return res.status(400).json({ error: "Invalid URL." });
@@ -656,7 +610,6 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
   const safe = await urlIsSafeForExtraction(url);
   if (!safe) return res.status(400).json({ error: "URL host is not allowed." });
 
-  // Step 1: try fast HTML scan (skips cookie-gated pages gracefully)
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10000);
@@ -679,8 +632,6 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
     }
   } catch { /* fall through to yt-dlp */ }
 
-  // Step 2: yt-dlp — handles PH, YouTube, Twitch, Reddit, etc.
-  // Returns all quality tiers with estimated file sizes.
   try {
     const info = await ytDlpExtract(url);
     const streams = ytDlpFormatsToStreams(info);
@@ -1198,8 +1149,6 @@ io.on("connection", (socket) => {
       (room.hostKey && typeof hostKey === "string" && hostKey === room.hostKey);
 
     if (room.requireApproval && !bypassApproval) {
-      // Do NOT join the Socket.IO room — keep pending users isolated from
-      // chat/playback/source/vote broadcasts until approved.
       socket.currentRoomId = roomId;
       socket.pendingHostKey = typeof hostKey === "string" ? hostKey : null;
       room.pending.set(socket.id, {
