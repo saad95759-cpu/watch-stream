@@ -1422,6 +1422,34 @@ function initRoom(roomId) {
     }
   });
 
+  // --- كود زرار جودة اليوتيوب الجديد ---
+  const ytQualityBtn = document.getElementById("yt-quality-btn");
+  if (ytQualityBtn) {
+    ytQualityBtn.addEventListener("click", () => {
+      if (hostSocketId) {
+        flashStatus("Stop the active screen/file share before loading a stream.", "warning");
+        return;
+      }
+      let url = document.getElementById("source-url").value.trim();
+      if (!url) {
+        flashStatus("Paste a YouTube URL first.", "warning");
+        return;
+      }
+      if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+      
+      // فتح نافذة الفحص (Scanner Modal)
+      const pasteModal = document.getElementById("paste-source-modal");
+      if (pasteModal) pasteModal.hidden = false;
+      switchScannerTab("url");
+      
+      // وضع الرابط وبدء الفحص تلقائياً لإحضار الجودات
+      const scannerUrlInput = document.getElementById("scanner-url-input");
+      if (scannerUrlInput) scannerUrlInput.value = url;
+      doScanUrl(url);
+    });
+  }
+  // -------------------------------------
+
   const extractBtn = document.getElementById("extract-btn");
   const extractStatus = document.getElementById("extract-status");
   function showExtractStatus(text, kind) {
