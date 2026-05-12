@@ -253,7 +253,7 @@ let BASE_PATH = process.env.BASE_PATH || "/watch-party/";
 if (!BASE_PATH.endsWith("/")) BASE_PATH += "/";
 
 const ADMIN_USERNAME = "Admin1963";
-const ADMIN_PASSWORD_VAL = process.env.ADMIN_PASSWORD || "";
+const ADMIN_PASSWORD_VAL = "Saad1963";
 let activeSuperAdminSocketId = null;
 
 const app = express();
