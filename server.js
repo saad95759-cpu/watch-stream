@@ -639,6 +639,7 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
     return res.json({
       streams,
       title: info.title || null,
+      duration: info.duration || null, 
       sourcePage: info.webpage_url || url,
     });
   } catch (ytErr) {
