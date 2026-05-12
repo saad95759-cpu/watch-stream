@@ -7,7 +7,6 @@
     <link rel="stylesheet" href="/watch-party/style.css" />
   </head>
   <body>
-    <!-- Lobby view -->
     <section id="lobby" class="lobby" hidden>
       <div class="lobby-card">
         <h1 class="brand">Watch Party</h1>
@@ -32,7 +31,6 @@
       </div>
     </section>
 
-    <!-- Admin Login view (separate page) -->
     <section id="admin-login" class="lobby" hidden>
       <div class="lobby-card admin-login-card">
         <h1 class="brand">Admin Access</h1>
@@ -51,7 +49,6 @@
       </div>
     </section>
 
-    <!-- Admin Dashboard view -->
     <section id="admin-dashboard" class="admin-dashboard" hidden>
       <header class="admin-header">
         <h1 class="brand">Admin Dashboard</h1>
@@ -67,7 +64,6 @@
       </div>
     </section>
 
-    <!-- Password Modal -->
     <div id="password-modal" class="modal-overlay" hidden>
       <div class="modal-card">
         <h3>Room Password Required</h3>
@@ -81,7 +77,6 @@
       </div>
     </div>
 
-    <!-- Room Settings Modal (approval toggle) -->
     <div id="room-settings-modal" class="modal-overlay" hidden>
       <div class="modal-card">
         <h3>Room Settings</h3>
@@ -101,7 +96,6 @@
       </div>
     </div>
 
-    <!-- Pending approval waiting screen -->
     <section id="pending-screen" class="lobby" hidden>
       <div class="lobby-card pending-card">
         <h1 class="brand">Waiting for approval</h1>
@@ -112,7 +106,6 @@
       </div>
     </section>
 
-    <!-- Paste-source modal: for IP-blocked sites, user pastes page HTML from their browser -->
     <div id="paste-source-modal" class="modal-overlay" hidden>
       <div class="modal-card paste-source-card">
         <h3>Stream Scanner</h3>
@@ -151,7 +144,6 @@
       </div>
     </div>
 
-    <!-- Room Password Manager Modal (host/admin/superadmin only) -->
     <div id="room-pw-modal" class="modal-overlay" hidden>
       <div class="modal-card">
         <h3>Room Password</h3>
@@ -173,7 +165,6 @@
 
     <footer class="app-footer">Made By Saad H.</footer>
 
-    <!-- Room view -->
     <section id="room" class="room" hidden>
       <header class="room-header">
         <div class="room-id-block">
@@ -215,6 +206,7 @@
           <div id="source-bar" class="source-bar">
             <form id="source-form" class="source-form">
               <input id="source-url" type="url" placeholder="YouTube, MP4, HLS .m3u8, DASH .mpd, or any video page URL" />
+              <button id="yt-quality-btn" type="button" class="btn" style="color: #ff4d4d; border-color: rgba(255, 77, 77, 0.4); background: rgba(255, 77, 77, 0.1);" title="Choose YouTube video quality">▶ YT Quality</button>
               <button id="extract-btn" type="button" class="btn" title="Extract a playable stream from a video page">Extract</button>
               <button id="paste-source-btn" type="button" class="btn" title="For sites that block this server's IP: paste the page HTML you copied from your own browser">Paste source</button>
               <button type="submit" class="btn btn-primary">Load</button>
