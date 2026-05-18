@@ -1562,7 +1562,12 @@ function initRoom(roomId) {
           body: JSON.stringify({ url }),
         });
         const data = await res.json();
-        if (data.drm) {
+        // YouTube: load via native player, skip extraction
+        if (data.youtube && data.videoId) {
+          socket.emit("set-source", { source: data.videoId, sourceType: "youtube" });
+          showExtractStatus("YouTube video loaded! Use ▶ YT Quality to pick resolution.", "ok");
+          setTimeout(() => showExtractStatus("", null), 5000);
+        } else if (data.drm) {
           showExtractStatus("DRM-protected content is not supported (Netflix, Disney+, HBO, Prime, etc.).", "error");
         } else if (!res.ok || !data.streamUrl) {
           showExtractStatus(data.error || "Could not extract a playable stream.", "error");

@@ -318,6 +318,17 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
   if (!url || !/^https?:\/\//i.test(url)) {
     return res.status(400).json({ error: "Invalid URL" });
   }
+  // YouTube URLs: use native IFrame player, skip yt-dlp (blocked by bot detection)
+  const ytId = parseYouTube(url);
+  if (ytId) {
+    return res.json({
+      youtube: true,
+      videoId: ytId,
+      streamUrl: null,
+      type: "youtube",
+      title: null,
+    });
+  }
   if (detectDrm(url)) {
     return res.status(200).json({ drm: true, error: "DRM-protected content is not supported." });
   }
