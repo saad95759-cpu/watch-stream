@@ -363,6 +363,13 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       title: null,
     });
   }
+
+  const biliMatch = url.match(/bilibili\.(?:tv|com)\/(?:en\/)?video\/([A-Za-z0-9_]+)/i);
+  if (biliMatch) {
+    return res.json({ bilibili: true, videoId: biliMatch[1], title: "Bilibili Video" });
+  }
+
+  // Handle Twitch directly via iframe instead of scraping if we wanted, but let's stick to extraction for now.
   if (detectDrm(url)) {
     return res.status(200).json({ drm: true, error: "DRM-protected content is not supported." });
   }
@@ -714,6 +721,17 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
       streams: [],
       title: null,
       error: "YouTube videos play natively — use the Load button or YT Quality button instead.",
+    });
+  }
+
+  const biliMatch = url.match(/bilibili\.(?:tv|com)\/(?:en\/)?video\/([A-Za-z0-9_]+)/i);
+  if (biliMatch) {
+    return res.json({
+      bilibili: true,
+      videoId: biliMatch[1],
+      streams: [],
+      title: "Bilibili Video",
+      error: "Bilibili videos play natively via iframe.",
     });
   }
 
