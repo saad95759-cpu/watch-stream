@@ -80,8 +80,10 @@ function detectDrm(url) {
 
 function detectStreamType(url) {
   const u = String(url || "").toLowerCase().split("?")[0].split("#")[0];
-  if (u.endsWith(".m3u8")) return "hls";
+  if (u.endsWith(".m3u8") || u.endsWith(".m3u")) return "hls";
   if (u.endsWith(".mpd")) return "dash";
+  if (/\/manifest\.m3u8/i.test(url) || /format=m3u8/i.test(url)) return "hls";
+  if (/\/manifest\.mpd/i.test(url) || /format=mpd/i.test(url)) return "dash";
   return "mp4";
 }
 

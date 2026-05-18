@@ -187,9 +187,12 @@ function showView(name) {
 function detectSourceType(url) {
   if (typeof url !== "string") return null;
   const clean = url.toLowerCase().split("?")[0].split("#")[0];
-  if (clean.endsWith(".m3u8")) return "hls";
+  if (clean.endsWith(".m3u8") || clean.endsWith(".m3u")) return "hls";
   if (clean.endsWith(".mpd")) return "dash";
-  if (/\.(mp4|webm|ogg|mov|m4v|mkv)$/i.test(clean)) return "mp4";
+  if (/\.(mp4|webm|ogg|mov|m4v|mkv|ts|f4v|3gp|avi|wmv|flv)$/i.test(clean)) return "mp4";
+  // URL patterns that indicate HLS/DASH even without extension
+  if (/\/manifest\.m3u8/i.test(url) || /format=m3u8/i.test(url)) return "hls";
+  if (/\/manifest\.mpd/i.test(url) || /format=mpd/i.test(url)) return "dash";
   return null;
 }
 
@@ -1312,7 +1315,7 @@ function initRoom(roomId) {
     voipAudios.delete(id);
   });
   socket.on("voip-offer", async ({ from, sdp }) => {
-    if (!voipActive || !voipStream) return;
+    // Accept incoming audio even without local mic (listen-only mode)
     try {
       const pc = createVoipPeer(from);
       await pc.setRemoteDescription(sdp);
@@ -1366,7 +1369,6 @@ function initRoom(roomId) {
   }
 
   async function createVoipOffer(peerId) {
-    if (!voipActive || !voipStream) return;
     try {
       const pc = createVoipPeer(peerId);
       const offer = await pc.createOffer({ offerToReceiveAudio: true });
@@ -1554,21 +1556,64 @@ function initRoom(roomId) {
       extractBtn.disabled = true;
       const oldText = extractBtn.textContent;
       extractBtn.textContent = "Extracting…";
-      showExtractStatus("Resolving stream…", "info");
+      showExtractStatus("Scanning for streams…", "info");
       try {
+        // Step 1: Try fetch-scan first (returns ALL streams with qualities)
+        const scanRes = await fetch(`${BASE}api/fetch-scan`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }),
+        });
+        const scanData = await scanRes.json();
+
+        // YouTube: load via native player
+        if (scanData.youtube && scanData.videoId) {
+          socket.emit("set-source", { source: scanData.videoId, sourceType: "youtube" });
+          showExtractStatus("YouTube video loaded! Use ▶ YT Quality to pick resolution.", "ok");
+          setTimeout(() => showExtractStatus("", null), 5000);
+          return;
+        }
+
+        // Multiple streams found: show quality picker
+        if (scanData.streams && scanData.streams.length > 0) {
+          showExtractStatus("", null);
+          // Open the scanner modal with results
+          const pasteModal = document.getElementById("paste-source-modal");
+          if (pasteModal) pasteModal.hidden = false;
+          renderStreamResults(scanData);
+          return;
+        }
+
+        // DRM detected
+        if (scanData.drm) {
+          showExtractStatus("DRM-protected content is not supported (Netflix, Disney+, HBO, Prime, etc.).", "error");
+          return;
+        }
+
+        // Step 2: Fall back to /api/extract (yt-dlp + browser extractor)
+        showExtractStatus("No streams from scan, trying deep extraction…", "info");
         const res = await fetch(`${BASE}api/extract`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url }),
         });
         const data = await res.json();
-        // YouTube: load via native player, skip extraction
         if (data.youtube && data.videoId) {
           socket.emit("set-source", { source: data.videoId, sourceType: "youtube" });
           showExtractStatus("YouTube video loaded! Use ▶ YT Quality to pick resolution.", "ok");
           setTimeout(() => showExtractStatus("", null), 5000);
         } else if (data.drm) {
           showExtractStatus("DRM-protected content is not supported (Netflix, Disney+, HBO, Prime, etc.).", "error");
+        } else if (data.allStreams && data.allStreams.length > 1) {
+          // Multiple streams from extract: show picker
+          showExtractStatus("", null);
+          const pasteModal = document.getElementById("paste-source-modal");
+          if (pasteModal) pasteModal.hidden = false;
+          renderStreamResults({
+            streams: data.allStreams,
+            title: data.title,
+            sourcePage: data.sourcePage || url,
+          });
         } else if (!res.ok || !data.streamUrl) {
           showExtractStatus(data.error || "Could not extract a playable stream.", "error");
         } else {
@@ -2118,6 +2163,7 @@ function initRoom(roomId) {
 
   function mountHls(src, time, isPlaying) {
     teardownAdaptive();
+    hideQualitySelector();
     if (ytSeekPollId) { clearInterval(ytSeekPollId); ytSeekPollId = null; }
     if (ytPlayer) { try { ytPlayer.destroy(); } catch { /* ignore */ } ytPlayer = null; }
     mp4El.hidden = false;
@@ -2131,12 +2177,13 @@ function initRoom(roomId) {
         if (time > 0) mp4El.currentTime = Math.max(0, time);
         if (isPlaying) mp4El.play().catch(() => promptAutoplay());
         else mp4El.pause();
+        // Populate HLS quality selector
+        buildHlsQualityMenu(hlsInstance);
       });
       hlsInstance.on(window.Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) {
           console.warn("HLS fatal error", data);
           if (data.details === "fragLoadError") {
-            // Almost always means IP-locked CDN tokens — no server proxy can fix this.
             showIpLockHelp();
           } else {
             autoExtractFallback(src, data.details || "fatal");
@@ -2157,9 +2204,92 @@ function initRoom(roomId) {
     updatePlayerControls();
   }
 
+  // --- In-player Quality Selector (HLS / DASH) ---
+  const qualitySelectorEl = document.getElementById("quality-selector");
+  const qualityBtnEl = document.getElementById("quality-btn");
+  const qualityMenuEl = document.getElementById("quality-menu");
+
+  function hideQualitySelector() {
+    if (qualitySelectorEl) qualitySelectorEl.hidden = true;
+    if (qualityMenuEl) qualityMenuEl.hidden = true;
+  }
+
+  function buildHlsQualityMenu(hls) {
+    if (!hls || !hls.levels || hls.levels.length <= 1) {
+      hideQualitySelector();
+      return;
+    }
+    const levels = hls.levels;
+    if (qualitySelectorEl) qualitySelectorEl.hidden = false;
+    if (qualityBtnEl) qualityBtnEl.textContent = "⚙ Auto";
+
+    function renderMenu() {
+      if (!qualityMenuEl) return;
+      qualityMenuEl.innerHTML = "";
+      const currentLevel = hls.currentLevel;
+
+      // Auto option
+      const autoBtn = document.createElement("button");
+      autoBtn.className = "quality-menu-item" + (currentLevel === -1 ? " active" : "");
+      autoBtn.innerHTML = `<span class="quality-check">${currentLevel === -1 ? "✓" : ""}</span> Auto`;
+      autoBtn.addEventListener("click", () => {
+        hls.currentLevel = -1;
+        if (qualityBtnEl) qualityBtnEl.textContent = "⚙ Auto";
+        qualityMenuEl.hidden = true;
+      });
+      qualityMenuEl.appendChild(autoBtn);
+
+      // Each quality level (sorted by height descending)
+      const sorted = levels.map((l, i) => ({ ...l, idx: i }))
+        .sort((a, b) => (b.height || 0) - (a.height || 0));
+      sorted.forEach((level) => {
+        const label = level.height ? `${level.height}p` : `${Math.round((level.bitrate || 0) / 1000)}kbps`;
+        const btn = document.createElement("button");
+        btn.className = "quality-menu-item" + (currentLevel === level.idx ? " active" : "");
+        btn.innerHTML = `<span class="quality-check">${currentLevel === level.idx ? "✓" : ""}</span> ${label}`;
+        btn.addEventListener("click", () => {
+          hls.currentLevel = level.idx;
+          if (qualityBtnEl) qualityBtnEl.textContent = `⚙ ${label}`;
+          qualityMenuEl.hidden = true;
+        });
+        qualityMenuEl.appendChild(btn);
+      });
+    }
+
+    renderMenu();
+
+    // Update button label when quality auto-switches
+    hls.on(window.Hls.Events.LEVEL_SWITCHED, (_e, data) => {
+      const lvl = hls.levels[data.level];
+      if (hls.currentLevel === -1) {
+        const autoLabel = lvl?.height ? `Auto (${lvl.height}p)` : "Auto";
+        if (qualityBtnEl) qualityBtnEl.textContent = `⚙ ${autoLabel}`;
+      }
+      renderMenu();
+    });
+
+    if (qualityBtnEl) {
+      qualityBtnEl.onclick = (ev) => {
+        ev.stopPropagation();
+        if (qualityMenuEl) {
+          qualityMenuEl.hidden = !qualityMenuEl.hidden;
+          if (!qualityMenuEl.hidden) renderMenu();
+        }
+      };
+    }
+  }
+
+  // Close quality menu when clicking elsewhere
+  document.addEventListener("click", (ev) => {
+    if (qualityMenuEl && !qualityMenuEl.hidden &&
+        !qualityMenuEl.contains(ev.target) && ev.target !== qualityBtnEl) {
+      qualityMenuEl.hidden = true;
+    }
+  });
+
   function mountDash(src, time, isPlaying) {
     teardownAdaptive();
-    if (ytSeekPollId) { clearInterval(ytSeekPollId); ytSeekPollId = null; }
+    hideQualitySelector();
     if (ytPlayer) { try { ytPlayer.destroy(); } catch { /* ignore */ } ytPlayer = null; }
     mp4El.hidden = false;
     playerKind = "dash";
@@ -2187,6 +2317,7 @@ function initRoom(roomId) {
 
   function mountRtc() {
     hideAllPlayers();
+    hideQualitySelector();
     document.getElementById("player-empty").hidden = true;
     rtcEl.hidden = false;
     teardownAdaptive();
@@ -2199,7 +2330,7 @@ function initRoom(roomId) {
 
   function mountMp4(src, time, isPlaying) {
     teardownAdaptive();
-    if (ytSeekPollId) { clearInterval(ytSeekPollId); ytSeekPollId = null; }
+    hideQualitySelector();
     if (ytPlayer) {
       try { ytPlayer.destroy(); } catch { /* ignore */ }
       ytPlayer = null;
