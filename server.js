@@ -7,6 +7,7 @@ import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import dns from "node:dns/promises";
 import net from "node:net";
+import { Readable } from "node:stream";
 
 function isPrivateIp(ip) {
   if (!ip) return true;
@@ -86,6 +87,15 @@ function detectStreamType(url) {
 
 const extractCache = new Map();
 const EXTRACT_TTL_MS = 10 * 60 * 1000;
+const EXTRACT_CACHE_MAX = 200;
+
+// Periodically sweep expired extract cache entries to prevent memory leaks
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of extractCache) {
+    if (now - entry.t >= EXTRACT_TTL_MS) extractCache.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
 
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const YTDLP_WRAPPER = path.join(SERVER_DIR, "bin", "extract.py");
@@ -132,10 +142,12 @@ function browserExtract(url) {
   });
 }
 
+const PYTHON_CMD = process.platform === "win32" ? "python" : "python3";
+
 function ytDlpExtract(url) {
   return new Promise((resolve, reject) => {
     execFile(
-      "python3",
+      PYTHON_CMD,
       [YTDLP_WRAPPER, url],
       { timeout: 30000, maxBuffer: 8 * 1024 * 1024 },
       (err, stdout, stderr) => {
@@ -243,7 +255,7 @@ function pickBestStream(info) {
   return { url: top.url, type };
 }
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Use SERVER_DIR (defined above) instead of re-deriving __dirname
 
 const rawPort = process.env.PORT || "10000";
 const PORT = Number(rawPort);
@@ -252,21 +264,49 @@ const PORT = Number(rawPort);
 let BASE_PATH = process.env.BASE_PATH || "/watch-party/";
 if (!BASE_PATH.endsWith("/")) BASE_PATH += "/";
 
-const ADMIN_USERNAME = "Admin1963";
-const ADMIN_PASSWORD_VAL = "Saad1963";
+// Security: Admin credentials loaded from environment variables.
+// Set ADMIN_USERNAME and ADMIN_PASSWORD env vars before running in production.
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "";
+const ADMIN_PASSWORD_VAL = process.env.ADMIN_PASSWORD || "";
+if (!ADMIN_USERNAME || !ADMIN_PASSWORD_VAL) {
+  console.warn(
+    "⚠️  WARNING: ADMIN_USERNAME and/or ADMIN_PASSWORD env vars are not set. " +
+    "Admin login is DISABLED until both are configured."
+  );
+}
 let activeSuperAdminSocketId = null;
 
 const app = express();
 app.disable("x-powered-by");
+
+// Security headers middleware
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(), microphone=(self), geolocation=(), payment=()"
+  );
+  next();
+});
+
 app.use(express.json({ limit: "8mb" }));
 
 const httpServer = createServer(app);
+// CORS: origin=true allows any origin. This is intentional for easy deployment
+// (the app may be accessed from different domains). For stricter setups, set
+// the ALLOWED_ORIGINS env var to a comma-separated list of allowed origins.
+const corsOrigin = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map((s) => s.trim())
+  : true;
 const io = new Server(httpServer, {
   path: `${BASE_PATH}socket.io`,
-  cors: { origin: true, credentials: true },
+  cors: { origin: corsOrigin, credentials: true },
 });
 
-const publicDir = path.join(__dirname, "public");
+const publicDir = path.join(SERVER_DIR, "public");
 app.use(BASE_PATH, express.static(publicDir, { index: false }));
 
 function sendIndex(_req, res) {
@@ -329,6 +369,10 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           sourcePage: scanned.sourcePage || url,
           allStreams: scanned.streams,
         };
+        if (extractCache.size >= EXTRACT_CACHE_MAX) {
+          const oldest = extractCache.keys().next().value;
+          if (oldest !== undefined) extractCache.delete(oldest);
+        }
         extractCache.set(url, { t: Date.now(), data });
         return res.json(data);
       }
@@ -350,6 +394,10 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           thumbnail: null,
           sourcePage: url,
         };
+        if (extractCache.size >= EXTRACT_CACHE_MAX) {
+          const oldest = extractCache.keys().next().value;
+          if (oldest !== undefined) extractCache.delete(oldest);
+        }
         extractCache.set(url, { t: Date.now(), data });
         return res.json(data);
       }
@@ -368,6 +416,10 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       thumbnail: info?.thumbnail || null,
       sourcePage: url,
     };
+    if (extractCache.size >= EXTRACT_CACHE_MAX) {
+      const oldest = extractCache.keys().next().value;
+      if (oldest !== undefined) extractCache.delete(oldest);
+    }
     extractCache.set(url, { t: Date.now(), data });
     res.json(data);
   } catch (e) {
@@ -543,9 +595,13 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
   try { parsed = new URL(rawUrl); } catch { return res.status(400).send("Invalid URL"); }
   if (!["http:", "https:"].includes(parsed.protocol)) return res.status(400).send("Only http/https allowed");
 
+  // NOTE (TOCTOU): DNS results can change between this check and the fetch() below.
+  // This is a best-effort guard; a determined attacker with DNS rebinding could
+  // bypass it. For full protection, use a custom DNS resolver or proxy.
   try {
     const addrs = await dns.resolve(parsed.hostname).catch(() => []);
     if (!addrs.length) { const a4 = await dns.resolve4(parsed.hostname).catch(() => []); addrs.push(...a4); }
+    if (!addrs.length) return res.status(403).send("Cannot resolve hostname");
     for (const addr of addrs) {
       if (isPrivateIp(addr)) return res.status(403).send("Blocked");
     }
@@ -587,7 +643,6 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
     res.setHeader("Content-Type", ct || "application/octet-stream");
     const cl = upstream.headers.get("content-length");
     if (cl) res.setHeader("Content-Length", cl);
-    const { Readable } = await import("node:stream");
     Readable.fromWeb(upstream.body).pipe(res);
   } catch (err) {
     if (!res.headersSent) res.status(502).send("Proxy error: " + err.message);
@@ -669,7 +724,26 @@ const ROOM_SWEEP_INTERVAL_MS =
   Number(process.env.ROOM_SWEEP_INTERVAL_MS) || 60 * 1000;
 
 const rooms = new Map();
-const adminTokens = new Set();
+
+// Admin tokens: stored with creation timestamp for expiry.
+// Map<string, number> — token → created-at timestamp
+const ADMIN_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const ADMIN_TOKEN_MAX = 50;
+const adminTokens = new Map();
+
+// Sweep expired admin tokens every 30 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, createdAt] of adminTokens) {
+    if (now - createdAt >= ADMIN_TOKEN_TTL_MS) adminTokens.delete(token);
+  }
+}, 30 * 60 * 1000).unref();
+
+// Admin login rate limiter: Map<socketId, { attempts, lockedUntil }>
+const loginAttempts = new Map();
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_MS = 60 * 1000;
+const LOGIN_LOCKOUT_MS = 5 * 60 * 1000;
 
 function getOrCreateRoom(id) {
   let room = rooms.get(id);
@@ -1035,15 +1109,54 @@ io.on("connection", (socket) => {
       socket.emit("admin-login-result", { success: false });
       return;
     }
+
+    // Rate limiting: block brute-force login attempts
+    const now = Date.now();
+    let entry = loginAttempts.get(socket.id);
+    if (!entry) {
+      entry = { attempts: 0, windowStart: now, lockedUntil: 0 };
+      loginAttempts.set(socket.id, entry);
+    }
+    if (now < entry.lockedUntil) {
+      const waitSec = Math.ceil((entry.lockedUntil - now) / 1000);
+      socket.emit("admin-login-result", {
+        success: false,
+        error: `Too many attempts. Try again in ${waitSec}s.`,
+      });
+      return;
+    }
+    // Reset window if expired
+    if (now - entry.windowStart > LOGIN_WINDOW_MS) {
+      entry.attempts = 0;
+      entry.windowStart = now;
+    }
+    entry.attempts += 1;
+    if (entry.attempts > LOGIN_MAX_ATTEMPTS) {
+      entry.lockedUntil = now + LOGIN_LOCKOUT_MS;
+      socket.emit("admin-login-result", {
+        success: false,
+        error: "Too many failed attempts. Locked for 5 minutes.",
+      });
+      return;
+    }
+
     if (
-      username === ADMIN_USERNAME &&
+      ADMIN_USERNAME &&
       ADMIN_PASSWORD_VAL &&
+      username === ADMIN_USERNAME &&
       password === ADMIN_PASSWORD_VAL
     ) {
       evictPreviousSuperAdmin();
       socket.isSuperAdmin = true;
+      // Reset attempts on success
+      loginAttempts.delete(socket.id);
       const token = crypto.randomBytes(16).toString("hex");
-      adminTokens.add(token);
+      // Enforce max token count
+      if (adminTokens.size >= ADMIN_TOKEN_MAX) {
+        const oldestKey = adminTokens.keys().next().value;
+        if (oldestKey !== undefined) adminTokens.delete(oldestKey);
+      }
+      adminTokens.set(token, Date.now());
       socket.emit("admin-login-result", { success: true, token });
     } else {
       socket.emit("admin-login-result", { success: false });
@@ -1052,6 +1165,12 @@ io.on("connection", (socket) => {
 
   socket.on("admin-token-login", ({ token }) => {
     if (typeof token === "string" && adminTokens.has(token)) {
+      // Verify token hasn't expired
+      const createdAt = adminTokens.get(token);
+      if (Date.now() - createdAt >= ADMIN_TOKEN_TTL_MS) {
+        adminTokens.delete(token);
+        return;
+      }
       evictPreviousSuperAdmin();
       socket.isSuperAdmin = true;
       socket.emit("admin-login-result", { success: true, token });
