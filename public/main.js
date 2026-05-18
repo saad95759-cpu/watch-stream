@@ -1572,8 +1572,13 @@ function initRoom(roomId) {
         } else if (!res.ok || !data.streamUrl) {
           showExtractStatus(data.error || "Could not extract a playable stream.", "error");
         } else {
+          if (data.sourcePage) currentSourcePage = data.sourcePage;
           showExtractStatus(`Loaded ${data.title ? `"${data.title}"` : "stream"}.`, "ok");
-          socket.emit("set-source", { source: data.streamUrl, sourceType: data.type || "mp4" });
+          socket.emit("set-source", {
+            source: data.streamUrl,
+            sourceType: data.type || "mp4",
+            sourcePage: data.sourcePage || url,
+          });
           setTimeout(() => showExtractStatus("", null), 4000);
         }
       } catch (err) {

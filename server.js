@@ -89,11 +89,43 @@ const extractCache = new Map();
 const EXTRACT_TTL_MS = 10 * 60 * 1000;
 const EXTRACT_CACHE_MAX = 200;
 
+// Server-side cookie jar: stores cookies from page fetches per domain
+// so the HLS proxy can forward them (needed for PornHub-like sites).
+// Map<string, { cookies: string, t: number }>
+const domainCookies = new Map();
+const COOKIE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function storeCookiesFromResponse(resp, url) {
+  try {
+    const setCookies = resp.headers.getSetCookie?.() || [];
+    if (setCookies.length > 0) {
+      const domain = new URL(url).hostname.replace(/^www\./, "");
+      const cookieStr = setCookies.map((c) => c.split(";")[0]).join("; ");
+      domainCookies.set(domain, { cookies: cookieStr, t: Date.now() });
+    }
+  } catch { /* ignore */ }
+}
+
+function getCookiesForDomain(hostname) {
+  const domain = hostname.replace(/^www\./, "");
+  // Try exact match and parent domains
+  for (const [d, entry] of domainCookies) {
+    if (Date.now() - entry.t >= COOKIE_TTL_MS) { domainCookies.delete(d); continue; }
+    if (domain === d || domain.endsWith("." + d) || d.endsWith("." + domain.split(".").slice(-2).join("."))) {
+      return entry.cookies;
+    }
+  }
+  return "";
+}
+
 // Periodically sweep expired extract cache entries to prevent memory leaks
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of extractCache) {
     if (now - entry.t >= EXTRACT_TTL_MS) extractCache.delete(key);
+  }
+  for (const [d, entry] of domainCookies) {
+    if (now - entry.t >= COOKIE_TTL_MS) domainCookies.delete(d);
   }
 }, 5 * 60 * 1000).unref();
 
@@ -359,6 +391,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       signal: controller.signal,
     });
     if (resp.ok) {
+      storeCookiesFromResponse(resp, url);
       const html = await resp.text();
       const scanned = scanHtmlForStreams(html);
       if (scanned.streams && scanned.streams.length > 0) {
@@ -615,14 +648,18 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
   const proxyPath = `/${BASE_PATH.replace(/^\//, "")}api/hls-proxy`;
 
   try {
+    // Forward stored cookies from extraction (needed for PornHub-like CDNs)
+    const storedCookies = getCookiesForDomain(parsed.hostname);
+    const proxyHeaders = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Referer": referer,
+      "Origin": (() => { try { return new URL(referer).origin; } catch { return parsed.origin; } })(),
+      "Accept": "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+    };
+    if (storedCookies) proxyHeaders["Cookie"] = storedCookies;
     const upstream = await fetch(rawUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Referer": referer,
-        "Origin": parsed.origin,
-        "Accept": "*/*",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
+      headers: proxyHeaders,
       redirect: "follow",
       signal: AbortSignal.timeout(15000),
     });
@@ -697,6 +734,7 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
     });
     clearTimeout(timer);
     if (resp.ok) {
+      storeCookiesFromResponse(resp, url);
       const html = await resp.text();
       const result = scanHtmlForStreams(html);
       result.sourcePage = result.sourcePage || url;
