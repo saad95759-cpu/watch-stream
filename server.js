@@ -353,20 +353,14 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
     return res.status(400).json({ error: "Invalid URL" });
   }
   // YouTube URLs: use native IFrame player, skip yt-dlp (blocked by bot detection)
-  const ytId = parseYouTube(url);
-  if (ytId) {
-    return res.json({
-      youtube: true,
-      videoId: ytId,
-      streamUrl: null,
-      type: "youtube",
-      title: null,
-    });
+  if (url.includes("youtube.com") || url.includes("youtu.be")) {
+    const vId = url.match(/(?:v=|\/)([0-9A-Za-z_-]{11}).*/)?.[1];
+    if (vId) return res.json({ youtube: true, videoId: vId, title: "YouTube Video" });
   }
 
-  const biliMatch = url.match(/bilibili\.(?:tv|com)\/(?:en\/)?video\/([A-Za-z0-9_]+)/i);
-  if (biliMatch) {
-    return res.json({ bilibili: true, videoId: biliMatch[1], title: "Bilibili Video" });
+  // Bilibili uses proprietary MSE segments and blocks embedding/scraping
+  if (url.includes("bilibili.tv") || url.includes("bilibili.com")) {
+    return res.status(200).json({ drm: true, error: "Bilibili content is heavily protected. Please use the 'Share browser tab' button to watch it." });
   }
 
   // Handle Twitch directly via iframe instead of scraping if we wanted, but let's stick to extraction for now.
@@ -724,15 +718,9 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
     });
   }
 
-  const biliMatch = url.match(/bilibili\.(?:tv|com)\/(?:en\/)?video\/([A-Za-z0-9_]+)/i);
-  if (biliMatch) {
-    return res.json({
-      bilibili: true,
-      videoId: biliMatch[1],
-      streams: [],
-      title: "Bilibili Video",
-      error: "Bilibili videos play natively via iframe.",
-    });
+  // Bilibili uses proprietary MSE segments and blocks embedding/scraping
+  if (url.includes("bilibili.tv") || url.includes("bilibili.com")) {
+    return res.status(200).json({ drm: true, streams: [], error: "Bilibili content is heavily protected. Please use the 'Share browser tab' button to watch it." });
   }
 
   if (detectDrm(url)) return res.status(200).json({ drm: true, streams: [], error: "DRM-protected site — use Share Browser Tab instead." });

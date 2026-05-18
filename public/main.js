@@ -1408,14 +1408,6 @@ function initRoom(roomId) {
       url = "https://" + url;
       document.getElementById("source-url").value = url;
     }
-    // Check for Bilibili native bypass
-  const biliMatch = url.match(/bilibili\.(?:tv|com)\/(?:en\/)?video\/([A-Za-z0-9_]+)/i);
-  if (biliMatch) {
-    socket.emit("set-source", { source: biliMatch[1], sourceType: "bilibili", sourcePage: url });
-    showToast("Bilibili video loaded natively!");
-    return;
-  }
-
   const yt = parseYouTube(url);
     if (yt) {
       socket.emit("set-source", { source: yt, sourceType: "youtube" });
@@ -1582,14 +1574,6 @@ function initRoom(roomId) {
           return;
         }
 
-        // Bilibili: load via iframe
-        if (scanData.bilibili && scanData.videoId) {
-          socket.emit("set-source", { source: scanData.videoId, sourceType: "bilibili" });
-          showExtractStatus("Bilibili video loaded natively!", "ok");
-          setTimeout(() => showExtractStatus("", null), 5000);
-          return;
-        }
-
         // Multiple streams found: show quality picker
         if (scanData.streams && scanData.streams.length > 0) {
           showExtractStatus("", null);
@@ -1617,10 +1601,6 @@ function initRoom(roomId) {
         if (data.youtube && data.videoId) {
           socket.emit("set-source", { source: data.videoId, sourceType: "youtube" });
           showExtractStatus("YouTube video loaded! Use ▶ YT Quality to pick resolution.", "ok");
-          setTimeout(() => showExtractStatus("", null), 5000);
-        } else if (data.bilibili && data.videoId) {
-          socket.emit("set-source", { source: data.videoId, sourceType: "bilibili" });
-          showExtractStatus("Bilibili video loaded natively!", "ok");
           setTimeout(() => showExtractStatus("", null), 5000);
         } else if (data.drm) {
           showExtractStatus("DRM-protected content is not supported (Netflix, Disney+, HBO, Prime, etc.).", "error");
@@ -2054,7 +2034,6 @@ function initRoom(roomId) {
     document.getElementById("player-empty").hidden = true;
     switch (type) {
       case "youtube": mountYouTube(source, time, isPlaying); break;
-      case "bilibili": mountBilibili(source, time, isPlaying); break;
       case "hls": mountHls(source, time, isPlaying); break;
       case "dash": mountDash(source, time, isPlaying); break;
       default: mountMp4(source, time, isPlaying); break;
@@ -2376,28 +2355,6 @@ function initRoom(roomId) {
     mp4El.onseeked = null;
     try { mp4El.removeAttribute("src"); mp4El.load(); } catch { /* ignore */ }
     mp4El.hidden = true;
-  }
-
-  function mountBilibili(src, time, isPlaying) {
-    teardownAdaptive();
-    hideQualitySelector();
-    hideAllPlayers();
-    document.getElementById("player-empty").hidden = true;
-    playerKind = "bilibili";
-    const iframe = document.getElementById("bili-player");
-    if (!iframe) return;
-    iframe.hidden = false;
-    
-    let url = "";
-    if (src.startsWith("BV") || src.startsWith("av")) {
-      url = `//player.bilibili.com/player.html?bvid=${src}&autoplay=${isPlaying ? "1" : "0"}`;
-    } else {
-      url = `//www.bilibili.tv/en/embed/${src}?autoplay=${isPlaying ? "1" : "0"}`;
-    }
-    if (iframe.src !== url) iframe.src = url;
-    
-    attachMp4Listeners();
-    updatePlayerControls();
   }
 
   function mountYouTube(videoId, time, isPlaying) {
