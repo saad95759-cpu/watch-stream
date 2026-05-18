@@ -654,6 +654,19 @@ app.post(`${BASE_PATH}api/extract-from-html`, (req, res) => {
 app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
   const url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
   if (!url || !/^https?:\/\//i.test(url)) return res.status(400).json({ error: "Invalid URL." });
+
+  // YouTube URLs: skip extraction entirely — the client uses the native YT IFrame player
+  const ytId = parseYouTube(url);
+  if (ytId) {
+    return res.json({
+      youtube: true,
+      videoId: ytId,
+      streams: [],
+      title: null,
+      error: "YouTube videos play natively — use the Load button or YT Quality button instead.",
+    });
+  }
+
   if (detectDrm(url)) return res.status(200).json({ drm: true, streams: [], error: "DRM-protected site — use Share Browser Tab instead." });
   const safe = await urlIsSafeForExtraction(url);
   if (!safe) return res.status(400).json({ error: "URL host is not allowed." });

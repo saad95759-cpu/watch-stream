@@ -1422,12 +1422,12 @@ function initRoom(roomId) {
     }
   });
 
-  // --- كود زرار جودة اليوتيوب الجديد ---
+  // --- YT Quality button: uses YouTube IFrame API quality picker (no yt-dlp) ---
   const ytQualityBtn = document.getElementById("yt-quality-btn");
   if (ytQualityBtn) {
     ytQualityBtn.addEventListener("click", () => {
       if (hostSocketId) {
-        flashStatus("Stop the active screen/file share before loading a stream.", "warning");
+        flashStatus("Stop the active screen/file share before changing quality.", "warning");
         return;
       }
       let url = document.getElementById("source-url").value.trim();
@@ -1436,19 +1436,102 @@ function initRoom(roomId) {
         return;
       }
       if (!/^https?:\/\//i.test(url)) url = "https://" + url;
-      
-      // فتح نافذة الفحص (Scanner Modal)
-      const pasteModal = document.getElementById("paste-source-modal");
-      if (pasteModal) pasteModal.hidden = false;
-      switchScannerTab("url");
-      
-      // وضع الرابط وبدء الفحص تلقائياً لإحضار الجودات
-      const scannerUrlInput = document.getElementById("scanner-url-input");
-      if (scannerUrlInput) scannerUrlInput.value = url;
-      doScanUrl(url);
+
+      const videoId = parseYouTube(url);
+      if (!videoId) {
+        flashStatus("This doesn't look like a YouTube URL. Use Load for non-YouTube videos.", "warning");
+        return;
+      }
+
+      // If YT player is already loaded with this video, show quality picker directly
+      if (ytPlayer && playerKind === "youtube" && ytPlayer.getAvailableQualityLevels) {
+        showYtQualityPicker(ytPlayer);
+        return;
+      }
+
+      // Otherwise, load the video first, then show quality picker after it's ready
+      socket.emit("set-source", { source: videoId, sourceType: "youtube" });
+      flashStatus("Loading YouTube video — quality picker will appear shortly…", "info");
+
+      // Wait for the player to become ready, then show picker
+      const waitForPlayer = setInterval(() => {
+        if (ytPlayer && ytPlayer.getAvailableQualityLevels) {
+          const levels = ytPlayer.getAvailableQualityLevels();
+          if (levels && levels.length > 0) {
+            clearInterval(waitForPlayer);
+            showYtQualityPicker(ytPlayer);
+          }
+        }
+      }, 500);
+      // Timeout after 10 seconds
+      setTimeout(() => {
+        clearInterval(waitForPlayer);
+      }, 10000);
     });
   }
-  // -------------------------------------
+
+  const YT_QUALITY_LABELS = {
+    "highres": "4320p (8K)",
+    "hd2160": "2160p (4K)",
+    "hd1440": "1440p (2K)",
+    "hd1080": "1080p (Full HD)",
+    "hd720": "720p (HD)",
+    "large": "480p",
+    "medium": "360p",
+    "small": "240p",
+    "tiny": "144p",
+    "auto": "Auto",
+  };
+
+  function showYtQualityPicker(player) {
+    const levels = player.getAvailableQualityLevels();
+    if (!levels || levels.length === 0) {
+      flashStatus("YouTube hasn't provided quality options yet. Try again in a moment.", "warning");
+      return;
+    }
+
+    const currentQuality = player.getPlaybackQuality();
+
+    // Use the paste-source modal for the quality picker UI
+    const pasteModal = document.getElementById("paste-source-modal");
+    const scannerResults = document.getElementById("scanner-results");
+    const scannerStreamList = document.getElementById("scanner-stream-list");
+    const pasteStatus = document.getElementById("paste-source-status");
+
+    if (pasteModal) pasteModal.hidden = false;
+    // Hide scanner tabs since this isn't a scanner operation
+    document.getElementById("scanner-tab-url").hidden = true;
+    document.getElementById("scanner-tab-html").hidden = true;
+    document.querySelectorAll(".scanner-tab").forEach((t) => t.hidden = true);
+    document.getElementById("paste-source-submit").hidden = true;
+
+    if (scannerStreamList) {
+      scannerStreamList.innerHTML = "";
+      levels.forEach((level) => {
+        const btn = document.createElement("button");
+        btn.className = "btn scanner-stream-btn" + (level === currentQuality ? " btn-primary" : "");
+        const label = YT_QUALITY_LABELS[level] || level;
+        const badge = level === currentQuality ? "✓ Current" : "▶ YT";
+        btn.innerHTML = `<span class="stream-badge stream-badge-hls">${badge}</span> ${label}`;
+        btn.addEventListener("click", () => {
+          player.setPlaybackQuality(level);
+          flashStatus(`YouTube quality set to ${label}`, "success");
+          pasteModal.hidden = true;
+          // Restore scanner tabs visibility
+          document.querySelectorAll(".scanner-tab").forEach((t) => t.hidden = false);
+          document.getElementById("paste-source-submit").hidden = false;
+        });
+        scannerStreamList.appendChild(btn);
+      });
+    }
+    if (scannerResults) scannerResults.hidden = false;
+    if (pasteStatus) {
+      pasteStatus.textContent = `Choose playback quality for this YouTube video. Current: ${YT_QUALITY_LABELS[currentQuality] || currentQuality}`;
+      pasteStatus.className = "extract-status ok";
+      pasteStatus.hidden = false;
+    }
+  }
+  // ---------------------------------------------
 
   const extractBtn = document.getElementById("extract-btn");
   const extractStatus = document.getElementById("extract-status");
@@ -1523,6 +1606,10 @@ function initRoom(roomId) {
     if (pasteModal) pasteModal.hidden = true;
     showPasteStatus("", null);
     if (scannerResults) scannerResults.hidden = true;
+    // Restore scanner tabs in case they were hidden by YT Quality picker
+    document.querySelectorAll(".scanner-tab").forEach((t) => t.hidden = false);
+    const submitBtn = document.getElementById("paste-source-submit");
+    if (submitBtn) submitBtn.hidden = false;
   }
 
   function switchScannerTab(tab) {
@@ -1599,6 +1686,15 @@ function initRoom(roomId) {
         body: JSON.stringify({ url }),
       });
       const data = await res.json();
+
+      // Handle YouTube-specific response — load via native player
+      if (data.youtube && data.videoId) {
+        socket.emit("set-source", { source: data.videoId, sourceType: "youtube" });
+        showPasteStatus("YouTube video loaded! Use the ▶ YT Quality button to choose quality.", "ok");
+        setTimeout(closePasteModal, 2000);
+        return;
+      }
+
       if (!res.ok || !data.streams || data.streams.length === 0) {
         showPasteStatus(data.error || "No streams found. Try the 'Paste HTML' tab instead.", "error");
       } else {
