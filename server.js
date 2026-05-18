@@ -264,16 +264,9 @@ const PORT = Number(rawPort);
 let BASE_PATH = process.env.BASE_PATH || "/watch-party/";
 if (!BASE_PATH.endsWith("/")) BASE_PATH += "/";
 
-// Security: Admin credentials loaded from environment variables.
-// Set ADMIN_USERNAME and ADMIN_PASSWORD env vars before running in production.
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "";
-const ADMIN_PASSWORD_VAL = process.env.ADMIN_PASSWORD || "";
-if (!ADMIN_USERNAME || !ADMIN_PASSWORD_VAL) {
-  console.warn(
-    "⚠️  WARNING: ADMIN_USERNAME and/or ADMIN_PASSWORD env vars are not set. " +
-    "Admin login is DISABLED until both are configured."
-  );
-}
+// Security: Admin credentials — override via ADMIN_USERNAME / ADMIN_PASSWORD env vars.
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "Admin1963";
+const ADMIN_PASSWORD_VAL = process.env.ADMIN_PASSWORD || "Saad1963";
 let activeSuperAdminSocketId = null;
 
 const app = express();
