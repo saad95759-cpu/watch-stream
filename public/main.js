@@ -235,6 +235,8 @@ socket.on("admin-login-result", ({ success, token }) => {
         adminError.textContent = "Invalid credentials.";
         adminError.hidden = false;
       }
+    } else {
+      showToast("Invalid admin credentials.", "error");
     }
   }
 });
@@ -357,13 +359,18 @@ socket.on("admin-rooms", ({ rooms }) => {
 
 function startAdminDashboard() {
   socket.emit("admin-list-rooms");
+  socket.emit("admin-global-history");
   if (adminRefreshInterval) clearInterval(adminRefreshInterval);
   adminRefreshInterval = setInterval(() => {
-    if (!adminDashEl.hidden) socket.emit("admin-list-rooms");
+    if (!adminDashEl.hidden) {
+      socket.emit("admin-list-rooms");
+      socket.emit("admin-global-history");
+    }
   }, 5000);
 
   document.getElementById("admin-refresh-btn").onclick = () => {
     socket.emit("admin-list-rooms");
+    socket.emit("admin-global-history");
   };
   document.getElementById("admin-logout-btn").onclick = () => {
     sessDel("wp-admin-token");
@@ -372,6 +379,32 @@ function startAdminDashboard() {
     showView("lobby");
   };
 }
+
+function renderAdminHistory(historyList) {
+  const container = document.getElementById("admin-global-history");
+  if (!container) return;
+  container.innerHTML = "";
+  if (!historyList || historyList.length === 0) {
+    container.innerHTML = '<p class="hint">No history yet.</p>';
+    return;
+  }
+  historyList.forEach(item => {
+    const d = document.createElement("div");
+    d.className = "history-item";
+    d.style.padding = "8px";
+    d.style.borderBottom = "1px solid var(--border)";
+    d.innerHTML = `
+      <div style="font-size: 11px; color: var(--text-muted);">${new Date(item.timestamp).toLocaleString()} - Room: ${item.roomId}</div>
+      <div style="font-size: 13px; color: var(--primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.url}</div>
+      <div style="font-size: 12px;">Played by: ${item.playedByName || 'Unknown'}</div>
+    `;
+    container.appendChild(d);
+  });
+}
+
+socket.on("admin-global-history-result", ({ history }) => {
+  renderAdminHistory(history);
+});
 
 function renderAdminRooms(roomsList) {
   const container = document.getElementById("admin-room-list");
@@ -429,6 +462,9 @@ function initRoom(roomId) {
   let hostStreamKind = null;
   let participantList = [];
   let voteList = [];
+  let queueList = [];
+  let suggestionsList = [];
+  let roomHistoryList = [];
   let pendingList = [];
   let requireApproval = false;
   let lastPassword = null;
@@ -976,10 +1012,13 @@ function initRoom(roomId) {
     }
   });
 
-  socket.on("room-update", ({ roomHostId: newHostId, participants, votes }) => {
+  socket.on("room-update", ({ roomHostId: newHostId, participants, votes, queue, suggestions, history }) => {
     roomHostId = newHostId;
     participantList = participants || [];
     voteList = votes || [];
+    queueList = queue || [];
+    suggestionsList = suggestions || [];
+    roomHistoryList = history || [];
 
     const me = participantList.find((p) => p.id === myId);
     if (me) {
@@ -990,6 +1029,7 @@ function initRoom(roomId) {
     updateRoleUI();
     renderUserList();
     renderVoteList();
+    renderQueueAndSuggestions();
   });
 
   socket.on("votes-updated", ({ votes }) => {
@@ -2502,4 +2542,224 @@ function initRoom(roomId) {
     badgeCount = 0;
     badgeEl.hidden = true;
   }
+}
+
+// ===== History (Local Storage) =====
+function getLocalHistory() {
+  try {
+    const val = localStorage.getItem("wp-history");
+    return val ? JSON.parse(val) : [];
+  } catch { return []; }
+}
+function addLocalHistory(item) {
+  const h = getLocalHistory();
+  // Avoid consecutive duplicates
+  if (h.length > 0 && h[0].url === item.url) return;
+  h.unshift(item);
+  if (h.length > 20) h.pop();
+  try { localStorage.setItem("wp-history", JSON.stringify(h)); } catch {}
+  renderLocalHistory();
+}
+function renderLocalHistory() {
+  const listEl = document.getElementById("history-list");
+  if (!listEl) return;
+  const h = getLocalHistory();
+  listEl.innerHTML = "";
+  if (h.length === 0) {
+    listEl.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text-muted);font-size:12px;">No history yet.</div>';
+    return;
+  }
+  h.forEach(item => {
+    const d = document.createElement("div");
+    d.className = "history-dropdown-item";
+    d.innerHTML = `<div class="title">${item.url}</div><div class="time">${new Date(item.time).toLocaleDateString()}</div>`;
+    d.onclick = () => {
+      const srcInput = document.getElementById("source-url");
+      if (srcInput) srcInput.value = item.url;
+      document.getElementById("history-dropdown").hidden = true;
+    };
+    listEl.appendChild(d);
+  });
+}
+const histBtn = document.getElementById("history-dropdown-btn");
+if (histBtn) {
+  histBtn.onclick = (e) => {
+    e.preventDefault();
+    renderLocalHistory();
+    const dropdown = document.getElementById("history-dropdown");
+    if (dropdown) dropdown.hidden = !dropdown.hidden;
+  };
+}
+
+// ===== Queue and Suggestions UI =====
+function renderQueueAndSuggestions() {
+  const qList = document.getElementById("queue-list");
+  const sList = document.getElementById("suggestions-list");
+  const sSection = document.getElementById("suggestions-section");
+  if (!qList || !sList) return;
+  
+  // Render Queue
+  qList.innerHTML = "";
+  if (typeof queueList === "undefined" || queueList.length === 0) {
+    qList.innerHTML = '<div class="vote-empty">Queue is empty</div>';
+  } else {
+    queueList.forEach((q, idx) => {
+      const card = document.createElement("div");
+      card.className = "vote-card";
+      const acts = canIControl() 
+        ? `<button class="btn btn-danger" style="padding:2px 6px; font-size:11px;" onclick="window.removeQueue('${q.id}')">Remove</button>`
+        : "";
+      card.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div class="vote-url">${q.title || q.url}</div>
+            <div class="vote-meta">Added by ${q.addedByName}</div>
+          </div>
+          <div class="vote-actions">${acts}</div>
+        </div>
+      `;
+      qList.appendChild(card);
+    });
+  }
+
+  // Render Suggestions (Admin/Host only usually, but let's show to all if desired, or restrict)
+  if (sSection) {
+    sSection.hidden = !canIControl();
+  }
+  sList.innerHTML = "";
+  if (typeof suggestionsList === "undefined" || suggestionsList.length === 0) {
+    sList.innerHTML = '<div class="vote-empty">No suggestions</div>';
+  } else {
+    suggestionsList.forEach(s => {
+      const card = document.createElement("div");
+      card.className = "vote-card";
+      const acts = canIControl() 
+        ? `<button class="btn btn-primary" style="padding:2px 6px; font-size:11px;" onclick="window.approveQueue('${s.id}')">Approve</button>
+           <button class="btn btn-danger" style="padding:2px 6px; font-size:11px;" onclick="window.rejectQueue('${s.id}')">Reject</button>`
+        : "";
+      card.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div class="vote-url">${s.url}</div>
+            <div class="vote-meta">Suggested by ${s.addedByName}</div>
+          </div>
+          <div class="vote-actions">${acts}</div>
+        </div>
+      `;
+      sList.appendChild(card);
+    });
+  }
+}
+
+// Attach these to window so inline onclick works
+window.removeQueue = (id) => { if (typeof socket !== "undefined") socket.emit("queue-remove", { id }); };
+window.approveQueue = (id) => { if (typeof socket !== "undefined") socket.emit("queue-approve", { id }); };
+window.rejectQueue = (id) => { if (typeof socket !== "undefined") socket.emit("queue-reject", { id }); };
+
+// Suggest Form
+const sugForm = document.getElementById("suggest-form");
+if (sugForm) {
+  sugForm.onsubmit = (e) => {
+    e.preventDefault();
+    const input = document.getElementById("suggest-url");
+    if (input && input.value.trim() && typeof socket !== "undefined") {
+      socket.emit("queue-suggest", { url: input.value.trim() });
+      input.value = "";
+      showToast("Suggestion sent for approval", "success");
+    }
+  };
+}
+
+// React to source changes to populate local history
+if (typeof socket !== "undefined") {
+  socket.on("source-changed", ({ source, sourceType }) => {
+    if (source) {
+      addLocalHistory({ url: source, type: sourceType, time: Date.now() });
+    }
+  });
+
+  socket.on("queue-play-item", ({ url }) => {
+    // If I'm host, auto-load the URL
+    if (canIControl()) {
+      const srcInput = document.getElementById("source-url");
+      if (srcInput) srcInput.value = url;
+      const loadBtn = document.getElementById("extract-btn");
+      if (loadBtn) loadBtn.click(); // auto trigger extraction
+      else if (document.getElementById("source-form")) document.getElementById("source-form").dispatchEvent(new Event("submit"));
+    }
+  });
+
+  // Floating Reactions
+  socket.on("reaction", ({ emoji, from }) => {
+    const canvas = document.getElementById("reaction-canvas");
+    if (!canvas) return;
+    const el = document.createElement("div");
+    el.className = "floating-reaction";
+    el.textContent = emoji;
+    el.style.left = Math.random() * 80 + 10 + "%";
+    canvas.appendChild(el);
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 3000);
+  });
+}
+
+// Wire up reaction buttons
+document.querySelectorAll(".reaction-btn").forEach(btn => {
+  btn.onclick = () => {
+    if (typeof socket !== "undefined") {
+      socket.emit("reaction", { emoji: btn.dataset.emoji });
+    }
+  };
+});
+
+// Auto-advance logic (hook into mp4El ended if possible)
+const mp4ElRef = document.getElementById("mp4-player");
+if (mp4ElRef) {
+  mp4ElRef.addEventListener("ended", () => {
+    if (canIControl() && typeof socket !== "undefined") {
+      socket.emit("queue-next");
+    }
+  });
+}
+
+// Expose a function to see if user is host/admin (since myRole is scoped)
+function canIControl() {
+  if (typeof isSuperAdmin !== "undefined" && isSuperAdmin) return true;
+  // Fallback to checking the UI state of the source bar, which is hidden for viewers
+  const viewerBar = document.getElementById("viewer-bar");
+  return viewerBar && viewerBar.hidden;
+}
+
+// Translations hook
+if (window.WP_TRANSLATIONS) {
+  let currentLang = localStorage.getItem("wp-lang") || "en";
+  
+  function applyTranslations() {
+    const t = window.WP_TRANSLATIONS[currentLang];
+    if (!t) return;
+    document.documentElement.lang = currentLang;
+    document.documentElement.dir = currentLang === "ar" ? "rtl" : "ltr";
+    
+    document.querySelectorAll("[data-i18n]").forEach(el => {
+      const key = el.getAttribute("data-i18n");
+      if (t[key]) {
+        if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") el.placeholder = t[key];
+        else el.textContent = t[key];
+      }
+    });
+    
+    const btn = document.getElementById("lang-toggle-btn");
+    if (btn) btn.textContent = currentLang === "ar" ? "🌐 EN" : "🌐 عربي";
+  }
+
+  const toggleBtn = document.getElementById("lang-toggle-btn");
+  if (toggleBtn) {
+    toggleBtn.onclick = () => {
+      currentLang = currentLang === "en" ? "ar" : "en";
+      localStorage.setItem("wp-lang", currentLang);
+      applyTranslations();
+    };
+  }
+
+  // Initial apply
+  applyTranslations();
 }

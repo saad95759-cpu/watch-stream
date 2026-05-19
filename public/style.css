@@ -1450,3 +1450,137 @@ input[type="text"]::placeholder, input[type="url"]::placeholder, input[type="pas
   color: #e2e8f0;
 }
 .btn-ghost:hover { background: rgba(255,255,255,0.1); }
+
+/* ===== i18n RTL Support ===== */
+html[dir="rtl"] .room-id-block { flex-direction: row-reverse; }
+html[dir="rtl"] .room-header, html[dir="rtl"] .chat-header { flex-direction: row-reverse; }
+html[dir="rtl"] .chat-panel { border-left: none; border-right: 1px solid var(--border); }
+html[dir="rtl"] .msg-mine { align-self: flex-start; }
+html[dir="rtl"] .msg { align-self: flex-end; }
+html[dir="rtl"] .toast-container { right: auto; left: 16px; }
+html[dir="rtl"] .toast { animation: toastInRtl 0.35s var(--transition-slow) both; }
+@keyframes toastInRtl {
+  from { opacity: 0; transform: translateX(-40px) scale(0.95); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+/* ===== History Dropdown ===== */
+.history-dropdown-wrapper { position: relative; display: inline-block; }
+.history-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  width: 320px;
+  background: var(--bg-elev-solid);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  z-index: 1000;
+  max-height: 400px;
+  display: flex;
+  flex-direction: column;
+}
+.history-dropdown-header {
+  padding: 10px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.history-list {
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.history-dropdown-item {
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: rgba(255,255,255,0.02);
+}
+.history-dropdown-item:hover { background: rgba(0,240,255,0.1); }
+.history-dropdown-item .title { font-size: 13px; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-dropdown-item .time { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+/* ===== Reactions ===== */
+.reaction-bar {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  gap: 8px;
+  z-index: 10;
+  background: rgba(12, 16, 28, 0.6);
+  backdrop-filter: blur(8px);
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.reaction-btn {
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+.reaction-btn:hover { transform: scale(1.2); }
+.reaction-canvas {
+  position: absolute;
+  bottom: 60px;
+  right: 0;
+  width: 100%;
+  height: 200px;
+  pointer-events: none;
+  z-index: 9;
+  overflow: hidden;
+}
+.floating-reaction {
+  position: absolute;
+  bottom: 0;
+  font-size: 32px;
+  animation: floatUp 3s ease-out forwards;
+  opacity: 0;
+}
+@keyframes floatUp {
+  0% { transform: translateY(0) scale(0.5); opacity: 1; }
+  20% { transform: translateY(-40px) scale(1.2); opacity: 1; }
+  100% { transform: translateY(-150px) scale(1); opacity: 0; }
+}
+
+/* ===== Queue UI ===== */
+.queue-section { margin-bottom: 16px; }
+.queue-header {
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 700;
+  padding: 8px 12px;
+  letter-spacing: 0.5px;
+}
+.queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+/* ===== Admin History ===== */
+.admin-section-title {
+  margin-top: 24px;
+  margin-bottom: 12px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--primary);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+.admin-global-history {
+  background: var(--bg-elev);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  padding: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+}

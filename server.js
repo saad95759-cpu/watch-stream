@@ -8,6 +8,8 @@ import { execFile } from "node:child_process";
 import dns from "node:dns/promises";
 import net from "node:net";
 import { Readable } from "node:stream";
+import fs from "node:fs/promises";
+import fsSync from "node:fs";
 
 function isPrivateIp(ip) {
   if (!ip) return true;
@@ -118,6 +120,28 @@ function getCookiesForDomain(hostname) {
     }
   }
   return "";
+}
+
+const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = path.join(SERVER_DIR, "data");
+if (!fsSync.existsSync(DATA_DIR)) {
+  fsSync.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+let globalHistory = [];
+const HISTORY_FILE = path.join(DATA_DIR, "history.json");
+try {
+  if (fsSync.existsSync(HISTORY_FILE)) {
+    globalHistory = JSON.parse(fsSync.readFileSync(HISTORY_FILE, "utf-8"));
+  }
+} catch (err) {
+  console.error("Could not load history.json", err);
+}
+
+function appendGlobalHistory(entry) {
+  globalHistory.unshift(entry);
+  if (globalHistory.length > 500) globalHistory.pop(); // keep last 500 overall
+  fs.writeFile(HISTORY_FILE, JSON.stringify(globalHistory)).catch(() => {});
 }
 
 // Periodically sweep expired extract cache entries to prevent memory leaks
@@ -831,6 +855,9 @@ function getOrCreateRoom(id) {
       banned: new Map(),
       bannedClientIds: new Set(),
       votes: [],
+      queue: [],
+      suggestions: [],
+      history: [],
       requireApproval: false,
       pending: new Map(),
       approvedClientIds: new Set(),
@@ -1051,6 +1078,9 @@ function broadcastRoomUpdate(roomId) {
       roomHostId: room.roomHostId,
       participants: sock.isSuperAdmin ? fullList : publicList,
       votes,
+      queue: room.queue,
+      suggestions: room.suggestions,
+      history: room.history,
     });
   }
 }
@@ -1282,6 +1312,17 @@ io.on("connection", (socket) => {
     socket.emit("admin-rooms", { rooms: updatedList });
   });
 
+  socket.on("admin-global-history", () => {
+    if (!socket.isSuperAdmin) return;
+    socket.emit("admin-global-history-result", { history: globalHistory });
+  });
+
+  socket.on("admin-room-history", ({ roomId }) => {
+    if (!socket.isSuperAdmin) return;
+    const room = rooms.get(roomId);
+    socket.emit("admin-room-history-result", { history: room ? room.history : [] });
+  });
+
   socket.on("join", ({ roomId, name, password, token, hostKey, clientId }) => {
     if (typeof roomId !== "string" || !roomId) return;
     leaveCurrentRoom();
@@ -1362,7 +1403,114 @@ io.on("connection", (socket) => {
     ctx.room.currentTime = 0;
     ctx.room.isPlaying = false;
     ctx.room.lastUpdated = Date.now();
+    
+    // Add to history
+    const historyEntry = {
+      id: crypto.randomUUID(),
+      url: source,
+      sourceType,
+      sourcePage: ctx.room.sourcePage,
+      playedBy: socket.id,
+      playedByName: socket.userName,
+      roomId: ctx.rid,
+      timestamp: Date.now()
+    };
+    ctx.room.history.unshift(historyEntry);
+    if (ctx.room.history.length > 50) ctx.room.history.pop();
+    appendGlobalHistory(historyEntry);
+
     io.to(ctx.rid).emit("source-changed", { source, sourceType, sourcePage: ctx.room.sourcePage });
+  });
+
+  // Reaction events
+  socket.on("reaction", ({ emoji }) => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    // Basic rate limit check could go here
+    io.to(ctx.rid).emit("reaction", { emoji, from: socket.userName });
+  });
+
+  // Queue events
+  socket.on("queue-suggest", ({ url, title }) => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    if (typeof url !== "string") return;
+    const suggestion = {
+      id: crypto.randomUUID(),
+      url,
+      title: title || "Suggested video",
+      addedBy: socket.id,
+      addedByName: socket.userName,
+      timestamp: Date.now()
+    };
+    ctx.room.suggestions.push(suggestion);
+    broadcastRoomUpdate(ctx.rid);
+  });
+
+  socket.on("queue-approve", ({ id }) => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    if (!socket.isSuperAdmin && ctx.room.roomHostId !== socket.id && !ctx.room.admins.has(socket.id)) return; // Admin/host only
+    
+    const idx = ctx.room.suggestions.findIndex(s => s.id === id);
+    if (idx !== -1) {
+      const item = ctx.room.suggestions.splice(idx, 1)[0];
+      ctx.room.queue.push(item);
+      broadcastRoomUpdate(ctx.rid);
+    }
+  });
+
+  socket.on("queue-reject", ({ id }) => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    if (!socket.isSuperAdmin && ctx.room.roomHostId !== socket.id && !ctx.room.admins.has(socket.id)) return; // Admin/host only
+    
+    const idx = ctx.room.suggestions.findIndex(s => s.id === id);
+    if (idx !== -1) {
+      ctx.room.suggestions.splice(idx, 1);
+      broadcastRoomUpdate(ctx.rid);
+    }
+  });
+
+  socket.on("queue-remove", ({ id }) => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    if (!socket.isSuperAdmin && ctx.room.roomHostId !== socket.id && !ctx.room.admins.has(socket.id)) return;
+    
+    const idx = ctx.room.queue.findIndex(s => s.id === id);
+    if (idx !== -1) {
+      ctx.room.queue.splice(idx, 1);
+      broadcastRoomUpdate(ctx.rid);
+    }
+  });
+
+  socket.on("queue-reorder", ({ queue }) => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    if (!socket.isSuperAdmin && ctx.room.roomHostId !== socket.id && !ctx.room.admins.has(socket.id)) return;
+    if (!Array.isArray(queue)) return;
+    
+    // Validate that the new queue is just a permutation of the old one
+    const newQueue = [];
+    for (const q of queue) {
+      const existing = ctx.room.queue.find(x => x.id === q.id);
+      if (existing) newQueue.push(existing);
+    }
+    ctx.room.queue = newQueue;
+    broadcastRoomUpdate(ctx.rid);
+  });
+
+  socket.on("queue-next", () => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    if (!socket.isSuperAdmin && ctx.room.roomHostId !== socket.id && !ctx.room.admins.has(socket.id)) return;
+    
+    if (ctx.room.queue.length > 0) {
+      const nextItem = ctx.room.queue.shift();
+      broadcastRoomUpdate(ctx.rid);
+      // Trigger extraction for the next item
+      io.to(ctx.rid).emit("queue-play-item", { url: nextItem.url });
+    }
   });
 
   socket.on("play", ({ time }) => {
