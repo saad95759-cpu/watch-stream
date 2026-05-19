@@ -1,4 +1,4 @@
-const BASE = "/watch-party/";
+﻿const BASE = "/watch-party/";
 const PATH = window.location.pathname;
 const ROOM_MATCH = PATH.match(/^\/watch-party\/r\/([A-Za-z0-9_-]+)\/?$/);
 const ROOM_ID = ROOM_MATCH ? ROOM_MATCH[1] : null;
@@ -2695,7 +2695,7 @@ if (typeof socket !== "undefined") {
     if (!canvas) return;
     const el = document.createElement("div");
     el.className = "floating-reaction";
-    el.textContent = emoji;
+    el.innerHTML = emoji;
     el.style.left = Math.random() * 80 + 10 + "%";
     canvas.appendChild(el);
     setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 3000);
