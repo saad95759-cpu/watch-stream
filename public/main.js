@@ -1,4 +1,4 @@
-﻿const BASE = "/watch-party/";
+const BASE = "/watch-party/";
 const PATH = window.location.pathname;
 const ROOM_MATCH = PATH.match(/^\/watch-party\/r\/([A-Za-z0-9_-]+)\/?$/);
 const ROOM_ID = ROOM_MATCH ? ROOM_MATCH[1] : null;
@@ -931,6 +931,15 @@ function initRoom(roomId) {
       if (state.sourcePage) currentSourcePage = state.sourcePage;
       loadSource(state.source, state.sourceType, state.currentTime, state.isPlaying);
     }
+
+    if (state.voipPeers && state.voipPeers.length > 0) {
+      state.voipPeers.forEach((pid) => {
+        if (pid !== myId) {
+          activeSpeakers.add(pid);
+          createVoipOffer(pid);
+        }
+      });
+    }
   });
 
   socket.on("approval-pending", () => {
@@ -1089,7 +1098,18 @@ function initRoom(roomId) {
   });
 
   socket.on("user-joined", ({ name }) => appendSystemMessage(`${name} joined`));
-  socket.on("user-left", () => appendSystemMessage("Someone left"));
+  socket.on("user-left", ({ id }) => {
+    appendSystemMessage("Someone left");
+    if (id) {
+      activeSpeakers.delete(id);
+      const pc = voipPeers.get(id);
+      if (pc) { try { pc.close(); } catch {} }
+      voipPeers.delete(id);
+      const a = voipAudios.get(id);
+      if (a) { try { a.pause(); a.srcObject = null; } catch {} }
+      voipAudios.delete(id);
+    }
+  });
 
   const emojiPickerEl = document.getElementById("emoji-picker");
   const emojiTabsEl = document.getElementById("emoji-tabs");
@@ -1307,6 +1327,7 @@ function initRoom(roomId) {
   let voipStream = null;
   const voipPeers = new Map();
   const voipAudios = new Map();
+  const activeSpeakers = new Set();
 
   micBtn.addEventListener("click", () => {
     if (voipActive) stopVoip();
@@ -1319,6 +1340,17 @@ function initRoom(roomId) {
       voipActive = true;
       micBtn.classList.add("active");
       micBtn.textContent = "\u{1F3A4} On";
+
+      // Add tracks to all existing peer connections (we were listening, now we speak too)
+      for (const [pid, pc] of voipPeers.entries()) {
+        const senders = pc.getSenders();
+        const hasAudio = senders.some(s => s.track && s.track.kind === 'audio');
+        if (!hasAudio && voipStream) {
+          voipStream.getTracks().forEach((track) => pc.addTrack(track, voipStream));
+          createVoipOffer(pid);
+        }
+      }
+
       socket.emit("voip-join");
     } catch (err) {
       flashStatus("Could not access microphone: " + (err.message || err), "error");
@@ -1333,29 +1365,61 @@ function initRoom(roomId) {
     voipActive = false;
     micBtn.classList.remove("active");
     micBtn.textContent = "\u{1F3A4} Mic";
-    for (const pc of voipPeers.values()) { try { pc.close(); } catch {} }
-    voipPeers.clear();
-    for (const a of voipAudios.values()) { try { a.pause(); a.srcObject = null; } catch {} }
-    voipAudios.clear();
+
+    // Close connections to peers who are not active speakers.
+    // Keep connections to active speakers, but remove our tracks.
+    for (const [pid, pc] of voipPeers.entries()) {
+      if (!activeSpeakers.has(pid)) {
+        try { pc.close(); } catch {}
+        voipPeers.delete(pid);
+        const a = voipAudios.get(pid);
+        if (a) { try { a.pause(); a.srcObject = null; } catch {} }
+        voipAudios.delete(pid);
+      } else {
+        const senders = pc.getSenders();
+        senders.forEach(sender => {
+          if (sender.track) {
+            try { pc.removeTrack(sender); } catch {}
+          }
+        });
+        createVoipOffer(pid);
+      }
+    }
     socket.emit("voip-leave");
   }
 
   socket.on("voip-peers", ({ peers: peerIds }) => {
-    for (const pid of peerIds) createVoipOffer(pid);
+    for (const pid of peerIds) {
+      if (pid !== myId) {
+        activeSpeakers.add(pid);
+        createVoipOffer(pid);
+      }
+    }
   });
-  socket.on("voip-peer-joined", () => {
+
+  socket.on("voip-peer-joined", ({ id }) => {
     flashStatus("A user joined voice chat.", "info");
+    if (id && id !== myId) {
+      activeSpeakers.add(id);
+      createVoipOffer(id);
+    }
   });
+
   socket.on("voip-peer-left", ({ id }) => {
-    const pc = voipPeers.get(id);
-    if (pc) { try { pc.close(); } catch {} }
-    voipPeers.delete(id);
-    const a = voipAudios.get(id);
-    if (a) { try { a.pause(); a.srcObject = null; } catch {} }
-    voipAudios.delete(id);
+    if (id && id !== myId) {
+      activeSpeakers.delete(id);
+      if (!voipActive) {
+        const pc = voipPeers.get(id);
+        if (pc) { try { pc.close(); } catch {} }
+        voipPeers.delete(id);
+        const a = voipAudios.get(id);
+        if (a) { try { a.pause(); a.srcObject = null; } catch {} }
+        voipAudios.delete(id);
+      }
+    }
   });
+
   socket.on("voip-offer", async ({ from, sdp }) => {
-    // Accept incoming audio even without local mic (listen-only mode)
     try {
       const pc = createVoipPeer(from);
       await pc.setRemoteDescription(sdp);
@@ -1366,12 +1430,14 @@ function initRoom(roomId) {
       console.warn("voip-offer handling failed", err);
     }
   });
+
   socket.on("voip-answer", async ({ from, sdp }) => {
     const pc = voipPeers.get(from);
     if (!pc) return;
     try { await pc.setRemoteDescription(sdp); }
     catch (err) { console.warn("voip-answer handling failed", err); }
   });
+
   socket.on("voip-ice", async ({ from, candidate }) => {
     const pc = voipPeers.get(from);
     if (!pc || !candidate) return;
@@ -1380,31 +1446,41 @@ function initRoom(roomId) {
 
   function createVoipPeer(peerId) {
     let pc = voipPeers.get(peerId);
-    if (pc) return pc;
-    pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    voipPeers.set(peerId, pc);
-    pc.onicecandidate = (e) => {
-      if (e.candidate) socket.emit("voip-ice", { to: peerId, candidate: e.candidate });
-    };
-    pc.onconnectionstatechange = () => {
-      if (["failed", "closed", "disconnected"].includes(pc.connectionState)) {
-        try { pc.close(); } catch {}
-        voipPeers.delete(peerId);
-      }
-    };
-    if (voipStream) {
-      voipStream.getTracks().forEach((track) => pc.addTrack(track, voipStream));
+    if (!pc) {
+      pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      voipPeers.set(peerId, pc);
+      pc.onicecandidate = (e) => {
+        if (e.candidate) socket.emit("voip-ice", { to: peerId, candidate: e.candidate });
+      };
+      pc.onconnectionstatechange = () => {
+        if (["failed", "closed", "disconnected"].includes(pc.connectionState)) {
+          try { pc.close(); } catch {}
+          voipPeers.delete(peerId);
+          const a = voipAudios.get(peerId);
+          if (a) { try { a.pause(); a.srcObject = null; } catch {} }
+          voipAudios.delete(peerId);
+        }
+      };
+      pc.ontrack = (e) => {
+        let audio = voipAudios.get(peerId);
+        if (!audio) {
+          audio = new Audio();
+          audio.autoplay = true;
+          voipAudios.set(peerId, audio);
+        }
+        audio.srcObject = e.streams[0];
+        audio.play().catch(() => {});
+      };
     }
-    pc.ontrack = (e) => {
-      let audio = voipAudios.get(peerId);
-      if (!audio) {
-        audio = new Audio();
-        audio.autoplay = true;
-        voipAudios.set(peerId, audio);
+
+    if (voipStream) {
+      const senders = pc.getSenders();
+      const hasAudio = senders.some(s => s.track && s.track.kind === 'audio');
+      if (!hasAudio) {
+        voipStream.getTracks().forEach((track) => pc.addTrack(track, voipStream));
       }
-      audio.srcObject = e.streams[0];
-      audio.play().catch(() => {});
-    };
+    }
+
     return pc;
   }
 
@@ -1420,19 +1496,18 @@ function initRoom(roomId) {
   }
 
   socket.on("disconnect", () => {
-    if (voipActive) {
-      if (voipStream) {
-        voipStream.getTracks().forEach((t) => t.stop());
-        voipStream = null;
-      }
-      voipActive = false;
-      micBtn.classList.remove("active");
-      micBtn.textContent = "\u{1F3A4} Mic";
-      for (const pc of voipPeers.values()) { try { pc.close(); } catch {} }
-      voipPeers.clear();
-      for (const a of voipAudios.values()) { try { a.pause(); a.srcObject = null; } catch {} }
-      voipAudios.clear();
+    if (voipStream) {
+      voipStream.getTracks().forEach((t) => t.stop());
+      voipStream = null;
     }
+    voipActive = false;
+    micBtn.classList.remove("active");
+    micBtn.textContent = "\u{1F3A4} Mic";
+    for (const pc of voipPeers.values()) { try { pc.close(); } catch {} }
+    voipPeers.clear();
+    for (const a of voipAudios.values()) { try { a.pause(); a.srcObject = null; } catch {} }
+    voipAudios.clear();
+    activeSpeakers.clear();
   });
 
   document.getElementById("source-form").addEventListener("submit", (e) => {
