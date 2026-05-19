@@ -155,7 +155,6 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
-const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const YTDLP_WRAPPER = path.join(SERVER_DIR, "bin", "extract.py");
 const BROWSER_EXTRACTOR = path.join(SERVER_DIR, "bin", "browser_extract.mjs");
 
@@ -1406,7 +1405,7 @@ io.on("connection", (socket) => {
     
     // Add to history
     const historyEntry = {
-      id: crypto.randomUUID(),
+      id: crypto.randomBytes(4).toString("hex"),
       url: source,
       sourceType,
       sourcePage: ctx.room.sourcePage,
@@ -1436,7 +1435,7 @@ io.on("connection", (socket) => {
     if (!ctx) return;
     if (typeof url !== "string") return;
     const suggestion = {
-      id: crypto.randomUUID(),
+      id: crypto.randomBytes(4).toString("hex"),
       url,
       title: title || "Suggested video",
       addedBy: socket.id,
