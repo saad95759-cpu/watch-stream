@@ -1350,6 +1350,10 @@ function initRoom(roomId) {
       }
       for (const audio of voipAudios.values()) {
         audio.muted = !speakerActive;
+        audio.volume = speakerActive ? 1 : 0;
+        if (audio.srcObject) {
+          audio.srcObject.getAudioTracks().forEach(t => t.enabled = speakerActive);
+        }
       }
     });
   }
@@ -1454,6 +1458,16 @@ function initRoom(roomId) {
   socket.on("voip-offer", async ({ from, sdp }) => {
     try {
       const pc = createVoipPeer(from);
+      
+      // Handle glare (offer collision)
+      if (pc.signalingState === "have-local-offer") {
+        if (myId < from) {
+          await pc.setLocalDescription({ type: "rollback" });
+        } else {
+          return; // Impolite peer ignores the incoming offer
+        }
+      }
+
       await pc.setRemoteDescription(sdp);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -1502,6 +1516,10 @@ function initRoom(roomId) {
         }
         audio.srcObject = e.streams[0];
         audio.muted = !speakerActive;
+        audio.volume = speakerActive ? 1 : 0;
+        if (e.streams[0]) {
+          e.streams[0].getAudioTracks().forEach(t => t.enabled = speakerActive);
+        }
         audio.play().catch(() => {});
       };
     }
@@ -1518,12 +1536,20 @@ function initRoom(roomId) {
   }
 
   async function createVoipOffer(peerId) {
-    if (myId <= peerId) return; // Prevent WebRTC glare by only allowing the peer with the greater socket ID to offer
+    const pc = voipPeers.get(peerId);
+    // 1. Initial connection: only the greater ID initiates to prevent glare
+    if (!pc) {
+      if (myId <= peerId) return;
+    } else {
+      // 2. Existing connection: if signaling state is not stable, only the greater ID can offer to prevent glare
+      if (pc.signalingState !== "stable" && myId <= peerId) return;
+    }
+
     try {
-      const pc = createVoipPeer(peerId);
-      const offer = await pc.createOffer({ offerToReceiveAudio: true });
-      await pc.setLocalDescription(offer);
-      socket.emit("voip-offer", { to: peerId, sdp: pc.localDescription });
+      const activePc = createVoipPeer(peerId);
+      const offer = await activePc.createOffer({ offerToReceiveAudio: true });
+      await activePc.setLocalDescription(offer);
+      socket.emit("voip-offer", { to: peerId, sdp: activePc.localDescription });
     } catch (err) {
       console.warn("createVoipOffer failed", err);
     }
