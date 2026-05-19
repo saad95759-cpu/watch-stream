@@ -65,7 +65,8 @@ const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 
 const JS_STREAMING_HOSTS = [
   "abyssplayer", "abysscdn", "turbovid", "anafast", "vidspeed", 
-  "vidoba", "krakenfiles", "vidsonic", "byselapuix", "minochinos", "savefiles"
+  "vidoba", "krakenfiles", "vidsonic", "byselapuix", "minochinos", "savefiles",
+  "hgcloud"
 ];
 
 const DRM_KEYWORDS = [
@@ -375,8 +376,25 @@ app.get(`${BASE_PATH}healthz`, (_req, res) => res.json({ status: "ok" }));
 app.get("/", (req, res) => res.redirect(BASE_PATH));
 
 
+function findVideoIframe(html) {
+  if (typeof html !== "string") return null;
+  const matches = html.matchAll(/<iframe[^>]+src=["'](https?:\/\/[^"']+)["']/gi);
+  const videoKeywords = [
+    "hgcloud", "abyss", "turbo", "anafast", "vidspeed", "vidoba", "kraken",
+    "vidsonic", "byselapuix", "minochinos", "savefiles", "embed", "player", "video"
+  ];
+  for (const m of matches) {
+    const src = m[1];
+    const lower = src.toLowerCase();
+    if (videoKeywords.some(k => lower.includes(k))) {
+      return src;
+    }
+  }
+  return null;
+}
+
 app.post(`${BASE_PATH}api/extract`, async (req, res) => {
-  const url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
+  let url = typeof req.body?.url === "string" ? req.body.url.trim() : "";
   if (!url || !/^https?:\/\//i.test(url)) {
     return res.status(400).json({ error: "Invalid URL" });
   }
@@ -424,6 +442,18 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
     if (resp.ok) {
       storeCookiesFromResponse(resp, url);
       const html = await resp.text();
+      
+      const iframeUrl = findVideoIframe(html);
+      if (iframeUrl) {
+        let resolvedIframeUrl = iframeUrl;
+        try { resolvedIframeUrl = new URL(iframeUrl, url).href; } catch {}
+        url = resolvedIframeUrl;
+        const isJsIframe = JS_STREAMING_HOSTS.some(h => resolvedIframeUrl.toLowerCase().includes(h));
+        if (isJsIframe) {
+          throw new Error("Redirect to JS iframe browser extractor");
+        }
+      }
+
       const scanned = scanHtmlForStreams(html);
       if (scanned.streams && scanned.streams.length > 0) {
         const best = scanned.streams[0];
@@ -804,6 +834,17 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
     if (resp.ok) {
       storeCookiesFromResponse(resp, url);
       const html = await resp.text();
+      
+      const iframeUrl = findVideoIframe(html);
+      if (iframeUrl) {
+        let resolvedIframeUrl = iframeUrl;
+        try { resolvedIframeUrl = new URL(iframeUrl, url).href; } catch {}
+        const isJsIframe = JS_STREAMING_HOSTS.some(h => resolvedIframeUrl.toLowerCase().includes(h));
+        if (isJsIframe) {
+          return res.json({ streams: [], redirectUrl: resolvedIframeUrl, error: "Redirecting to iframe extractor..." });
+        }
+      }
+
       const result = scanHtmlForStreams(html);
       result.sourcePage = result.sourcePage || url;
       if (result.streams && result.streams.length > 0) return res.json(result);

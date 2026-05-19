@@ -1810,10 +1810,11 @@ function initRoom(roomId) {
 
         // Step 2: Fall back to /api/extract (yt-dlp + browser extractor)
         showExtractStatus("No streams from scan, trying deep extraction…", "info");
+        const extractUrl = scanData.redirectUrl || url;
         const res = await fetch(`${BASE}api/extract`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url }),
+          body: JSON.stringify({ url: extractUrl }),
         });
         const data = await res.json();
         if (data.youtube && data.videoId) {
