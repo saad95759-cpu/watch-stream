@@ -1780,7 +1780,13 @@ function initRoom(roomId) {
 
         // YouTube: load via native player
         if (scanData.youtube && scanData.videoId) {
-          socket.emit("set-source", { source: scanData.videoId, sourceType: "youtube", sourcePage: url, title: scanData.title || "YouTube Video" });
+          socket.emit("set-source", {
+            source: scanData.videoId,
+            sourceType: "youtube",
+            sourcePage: url,
+            title: scanData.title || "YouTube Video",
+            thumbnail: scanData.thumbnail || `https://img.youtube.com/vi/${scanData.videoId}/hqdefault.jpg`
+          });
           showExtractStatus("YouTube video loaded! Use ▶ YT Quality to pick resolution.", "ok");
           setTimeout(() => showExtractStatus("", null), 5000);
           return;
@@ -2739,7 +2745,23 @@ function getLocalHistory() {
     return val ? JSON.parse(val) : [];
   } catch { return []; }
 }
+function getYoutubeId(url) {
+  if (!url) return null;
+  const parsed = parseYouTube(url);
+  if (parsed) return parsed;
+  if (/^[A-Za-z0-9_-]{11}$/.test(url)) return url;
+  const ytReg = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+  const match = url.match(ytReg);
+  if (match) return match[1];
+  return null;
+}
 function addLocalHistory(item) {
+  const ytId = getYoutubeId(item.url);
+  if (ytId) {
+    item.url = `https://www.youtube.com/watch?v=${ytId}`;
+    item.type = "youtube";
+    item.thumbnail = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
+  }
   const h = getLocalHistory();
   // Avoid consecutive duplicates
   if (h.length > 0 && h[0].url === item.url) return;
@@ -2776,23 +2798,9 @@ function renderLocalHistory() {
     d.className = "history-dropdown-item";
     
     let thumbnailHtml = "";
-    let isYoutube = false;
-    let ytId = "";
+    const ytId = getYoutubeId(item.url);
 
-    if (item.type === "youtube") {
-      ytId = item.url;
-      isYoutube = true;
-    }
-    if (!isYoutube && item.url) {
-      const ytReg = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
-      const match = item.url.match(ytReg);
-      if (match) {
-        ytId = match[1];
-        isYoutube = true;
-      }
-    }
-
-    if (isYoutube && ytId) {
+    if (ytId) {
       thumbnailHtml = `<img class="history-thumb" src="https://img.youtube.com/vi/${ytId}/hqdefault.jpg" alt="thumbnail" />`;
     } else if (item.thumbnail) {
       thumbnailHtml = `
