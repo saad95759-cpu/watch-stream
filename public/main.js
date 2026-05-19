@@ -1583,14 +1583,14 @@ function initRoom(roomId) {
       url = "https://" + url;
       document.getElementById("source-url").value = url;
     }
-  const yt = parseYouTube(url);
+    const yt = parseYouTube(url);
     if (yt) {
-      socket.emit("set-source", { source: yt, sourceType: "youtube" });
+      socket.emit("set-source", { source: yt, sourceType: "youtube", sourcePage: url });
       return;
     }
     const detected = detectSourceType(url);
     if (detected) {
-      socket.emit("set-source", { source: url, sourceType: detected });
+      socket.emit("set-source", { source: url, sourceType: detected, sourcePage: url });
     } else if (/^https?:\/\//i.test(url)) {
       const btn = document.getElementById("extract-btn");
       if (btn) btn.click();
@@ -1627,7 +1627,7 @@ function initRoom(roomId) {
       }
 
       // Otherwise, load the video first, then show quality picker after it's ready
-      socket.emit("set-source", { source: videoId, sourceType: "youtube" });
+      socket.emit("set-source", { source: videoId, sourceType: "youtube", sourcePage: "https://www.youtube.com/watch?v=" + videoId });
       flashStatus("Loading YouTube video — quality picker will appear shortly…", "info");
 
       // Wait for the player to become ready, then show picker
@@ -1743,7 +1743,7 @@ function initRoom(roomId) {
 
         // YouTube: load via native player
         if (scanData.youtube && scanData.videoId) {
-          socket.emit("set-source", { source: scanData.videoId, sourceType: "youtube" });
+          socket.emit("set-source", { source: scanData.videoId, sourceType: "youtube", sourcePage: url, title: scanData.title || "YouTube Video" });
           showExtractStatus("YouTube video loaded! Use ▶ YT Quality to pick resolution.", "ok");
           setTimeout(() => showExtractStatus("", null), 5000);
           return;
@@ -1774,7 +1774,12 @@ function initRoom(roomId) {
         });
         const data = await res.json();
         if (data.youtube && data.videoId) {
-          socket.emit("set-source", { source: data.videoId, sourceType: "youtube" });
+          socket.emit("set-source", {
+            source: data.videoId,
+            sourceType: "youtube",
+            sourcePage: url,
+            title: data.title || "YouTube Video"
+          });
           showExtractStatus("YouTube video loaded! Use ▶ YT Quality to pick resolution.", "ok");
           setTimeout(() => showExtractStatus("", null), 5000);
         } else if (data.drm) {
@@ -1798,6 +1803,7 @@ function initRoom(roomId) {
             source: data.streamUrl,
             sourceType: data.type || "mp4",
             sourcePage: data.sourcePage || url,
+            title: data.title || null
           });
           setTimeout(() => showExtractStatus("", null), 4000);
         }
@@ -1858,7 +1864,7 @@ function initRoom(roomId) {
 
   function loadStream(streamUrl, streamType, sourcePage, title, allStreams) {
     if (sourcePage) currentSourcePage = sourcePage;
-    socket.emit("set-source", { source: streamUrl, sourceType: streamType || "mp4", sourcePage: sourcePage || null });
+    socket.emit("set-source", { source: streamUrl, sourceType: streamType || "mp4", sourcePage: sourcePage || null, title: title || null });
     const label = title ? `"${title}"` : "stream";
     showExtractStatus(`Loaded ${label}.`, "ok");
     setTimeout(closePasteModal, 600);
@@ -1919,7 +1925,7 @@ function initRoom(roomId) {
 
       // Handle YouTube-specific response — load via native player
       if (data.youtube && data.videoId) {
-        socket.emit("set-source", { source: data.videoId, sourceType: "youtube" });
+        socket.emit("set-source", { source: data.videoId, sourceType: "youtube", sourcePage: url, title: data.title || "YouTube Video" });
         showPasteStatus("YouTube video loaded! Use the ▶ YT Quality button to choose quality.", "ok");
         setTimeout(closePasteModal, 2000);
         return;
@@ -2318,6 +2324,7 @@ function initRoom(roomId) {
           source: data.streamUrl,
           sourceType: data.type || "hls",
           sourcePage: data.sourcePage || null,
+          title: data.title || null
         });
       } else if (data.drm) {
         flashStatus("DRM-protected content cannot be played.", "error");
@@ -2695,6 +2702,20 @@ function addLocalHistory(item) {
   try { localStorage.setItem("wp-history", JSON.stringify(h)); } catch {}
   renderLocalHistory();
 }
+function getTitleFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const pathname = parsed.pathname;
+    const parts = pathname.split("/");
+    const last = parts[parts.length - 1];
+    if (last) {
+      return decodeURIComponent(last);
+    }
+    return parsed.hostname;
+  } catch {
+    return url;
+  }
+}
 function renderLocalHistory() {
   const listEl = document.getElementById("history-list");
   if (!listEl) return;
@@ -2707,7 +2728,38 @@ function renderLocalHistory() {
   h.forEach(item => {
     const d = document.createElement("div");
     d.className = "history-dropdown-item";
-    d.innerHTML = `<div class="title">${item.url}</div><div class="time">${new Date(item.time).toLocaleDateString()}</div>`;
+    
+    let thumbnailHtml = "";
+    let isYoutube = false;
+    let ytId = "";
+
+    if (item.type === "youtube") {
+      ytId = item.url;
+      isYoutube = true;
+    }
+    if (!isYoutube && item.url) {
+      const ytReg = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+      const match = item.url.match(ytReg);
+      if (match) {
+        ytId = match[1];
+        isYoutube = true;
+      }
+    }
+
+    if (isYoutube && ytId) {
+      thumbnailHtml = `<img class="history-thumb" src="https://img.youtube.com/vi/${ytId}/hqdefault.jpg" alt="thumbnail" />`;
+    } else {
+      thumbnailHtml = `<div class="history-thumb-placeholder">🎬</div>`;
+    }
+
+    d.innerHTML = `
+      ${thumbnailHtml}
+      <div class="history-meta">
+        <div class="title" title="${item.title || item.url}">${item.title || item.url}</div>
+        <div class="url-sub" title="${item.url}">${item.url}</div>
+        <div class="time">${new Date(item.time).toLocaleDateString()}</div>
+      </div>
+    `;
     d.onclick = () => {
       const srcInput = document.getElementById("source-url");
       if (srcInput) srcInput.value = item.url;
@@ -2807,9 +2859,11 @@ if (sugForm) {
 
 // React to source changes to populate local history
 if (typeof socket !== "undefined") {
-  socket.on("source-changed", ({ source, sourceType }) => {
+  socket.on("source-changed", ({ source, sourceType, sourcePage, title }) => {
     if (source) {
-      addLocalHistory({ url: source, type: sourceType, time: Date.now() });
+      const displayUrl = sourcePage || source;
+      const displayTitle = title || getTitleFromUrl(displayUrl);
+      addLocalHistory({ url: displayUrl, title: displayTitle, type: sourceType, time: Date.now() });
     }
   });
 
@@ -2845,6 +2899,22 @@ document.querySelectorAll(".reaction-btn").forEach(btn => {
     }
   };
 });
+
+const reactionToggleBtn = document.getElementById("reaction-toggle-btn");
+const reactionBar = document.getElementById("reaction-bar");
+if (reactionToggleBtn && reactionBar) {
+  reactionToggleBtn.onclick = (e) => {
+    e.stopPropagation();
+    reactionBar.hidden = !reactionBar.hidden;
+  };
+  // Close the bar if clicking outside of the container
+  document.addEventListener("click", (e) => {
+    const container = document.getElementById("reaction-container");
+    if (container && !container.contains(e.target) && !reactionBar.hidden) {
+      reactionBar.hidden = true;
+    }
+  });
+}
 
 // Auto-advance logic (hook into mp4El ended if possible)
 const mp4ElRef = document.getElementById("mp4-player");

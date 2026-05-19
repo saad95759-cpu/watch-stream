@@ -212,13 +212,16 @@
                 <button id="quality-btn" class="btn quality-btn" type="button" title="Video Quality">⚙ Auto</button>
                 <div id="quality-menu" class="quality-menu" hidden></div>
               </div>
-              <div id="reaction-bar" class="reaction-bar">
-                <button class="reaction-btn" data-emoji="&#x2764;&#xFE0F;">&#x2764;&#xFE0F;</button>
-                <button class="reaction-btn" data-emoji="&#x1F602;">&#x1F602;</button>
-                <button class="reaction-btn" data-emoji="&#x1F62E;">&#x1F62E;</button>
-                <button class="reaction-btn" data-emoji="&#x1F44F;">&#x1F44F;</button>
-                <button class="reaction-btn" data-emoji="&#x1F525;">&#x1F525;</button>
-                <button class="reaction-btn" data-emoji="&#x1F480;">&#x1F480;</button>
+              <div id="reaction-container" class="reaction-container">
+                <div id="reaction-bar" class="reaction-bar" hidden>
+                  <button class="reaction-btn" data-emoji="&#x2764;&#xFE0F;">&#x2764;&#xFE0F;</button>
+                  <button class="reaction-btn" data-emoji="&#x1F602;">&#x1F602;</button>
+                  <button class="reaction-btn" data-emoji="&#x1F62E;">&#x1F62E;</button>
+                  <button class="reaction-btn" data-emoji="&#x1F44F;">&#x1F44F;</button>
+                  <button class="reaction-btn" data-emoji="&#x1F525;">&#x1F525;</button>
+                  <button class="reaction-btn" data-emoji="&#x1F480;">&#x1F480;</button>
+                </div>
+                <button id="reaction-toggle-btn" class="reaction-toggle-btn" type="button" title="Toggle Reactions">😀</button>
               </div>
               <div id="reaction-canvas" class="reaction-canvas"></div>
             </div>

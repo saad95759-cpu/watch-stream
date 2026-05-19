@@ -990,7 +990,7 @@ function broadcastPendingUpdate(roomId) {
   }
 }
 
-function applyExtractedSource(room, url) {
+function applyExtractedSource(room, url, title) {
   const yt = parseYouTube(url);
   if (yt) {
     room.source = yt;
@@ -999,6 +999,8 @@ function applyExtractedSource(room, url) {
     room.source = url;
     room.sourceType = detectStreamType(url);
   }
+  room.sourcePage = url;
+  room.title = title || null;
   room.currentTime = 0;
   room.isPlaying = false;
   room.lastUpdated = Date.now();
@@ -1389,7 +1391,7 @@ io.on("connection", (socket) => {
 
   socket.on("leave-room", () => leaveCurrentRoom());
 
-  socket.on("set-source", ({ source, sourceType, sourcePage }) => {
+  socket.on("set-source", ({ source, sourceType, sourcePage, title }) => {
     const ctx = requireMember();
     if (!ctx) return;
     if (typeof source !== "string" || typeof sourceType !== "string") return;
@@ -1399,6 +1401,7 @@ io.on("connection", (socket) => {
     ctx.room.source = source;
     ctx.room.sourceType = sourceType;
     ctx.room.sourcePage = (typeof sourcePage === "string" && sourcePage) ? sourcePage : null;
+    ctx.room.title = (typeof title === "string" && title) ? title : null;
     ctx.room.currentTime = 0;
     ctx.room.isPlaying = false;
     ctx.room.lastUpdated = Date.now();
@@ -1409,6 +1412,7 @@ io.on("connection", (socket) => {
       url: source,
       sourceType,
       sourcePage: ctx.room.sourcePage,
+      title: ctx.room.title,
       playedBy: socket.id,
       playedByName: socket.userName,
       roomId: ctx.rid,
@@ -1418,7 +1422,12 @@ io.on("connection", (socket) => {
     if (ctx.room.history.length > 50) ctx.room.history.pop();
     appendGlobalHistory(historyEntry);
 
-    io.to(ctx.rid).emit("source-changed", { source, sourceType, sourcePage: ctx.room.sourcePage });
+    io.to(ctx.rid).emit("source-changed", {
+      source,
+      sourceType,
+      sourcePage: ctx.room.sourcePage,
+      title: ctx.room.title
+    });
   });
 
   // Reaction events
@@ -1780,11 +1789,12 @@ io.on("connection", (socket) => {
     if (idx === -1) return;
     const vote = ctx.room.votes[idx];
     ctx.room.votes.splice(idx, 1);
-    applyExtractedSource(ctx.room, vote.url);
+    applyExtractedSource(ctx.room, vote.url, vote.title);
     io.to(ctx.rid).emit("source-changed", {
       source: ctx.room.source,
       sourceType: ctx.room.sourceType,
       sourcePage: ctx.room.sourcePage || null,
+      title: ctx.room.title || null,
     });
     io.to(ctx.rid).emit("votes-updated", {
       votes: serializeVotes(ctx.room.votes),
@@ -1897,11 +1907,12 @@ io.on("connection", (socket) => {
     const idx = ctx.room.votes.findIndex((v) => v.id === top.id);
     if (idx === -1) return;
     ctx.room.votes.splice(idx, 1);
-    applyExtractedSource(ctx.room, top.url);
+    applyExtractedSource(ctx.room, top.url, top.title);
     io.to(ctx.rid).emit("source-changed", {
       source: ctx.room.source,
       sourceType: ctx.room.sourceType,
       sourcePage: ctx.room.sourcePage || null,
+      title: ctx.room.title || null
     });
     io.to(ctx.rid).emit("votes-updated", {
       votes: serializeVotes(ctx.room.votes),
