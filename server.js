@@ -546,6 +546,11 @@ function scanHtmlForStreams(html) {
     if (tm) title = tm[1].trim();
   }
 
+  let thumbnail = null;
+  const ogImgM = html.match(/<meta[^>]+(?:property|name)=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+    || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']og:image["']/i);
+  if (ogImgM) thumbnail = ogImgM[1];
+
   let sourcePage = null;
   const canonM = html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)
     || html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i);
@@ -621,15 +626,15 @@ function scanHtmlForStreams(html) {
     return (parseInt(b.quality, 10) || 0) - (parseInt(a.quality, 10) || 0);
   });
 
-  if (unique.length === 0) return { streams: [], error: "No stream URL found in the source.", title, sourcePage };
-  return { streams: unique, title, sourcePage };
+  if (unique.length === 0) return { streams: [], error: "No stream URL found in the source.", title, sourcePage, thumbnail };
+  return { streams: unique, title, sourcePage, thumbnail };
 }
 
 function parsePastedHtml(html) {
-  const { streams, error, title, sourcePage } = scanHtmlForStreams(html);
+  const { streams, error, title, sourcePage, thumbnail } = scanHtmlForStreams(html);
   if (error && streams.length === 0) return { error };
   const best = streams[0];
-  return { streamUrl: best.url, type: best.type, title, sourcePage, allStreams: streams };
+  return { streamUrl: best.url, type: best.type, title, sourcePage, allStreams: streams, thumbnail };
 }
 
 function rewriteM3u8(text, baseUrl, proxyPath, ref) {
@@ -781,6 +786,7 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
       streams,
       title: info.title || null,
       duration: info.duration || null, 
+      thumbnail: info.thumbnail || null,
       sourcePage: info.webpage_url || url,
     });
   } catch (ytErr) {
@@ -990,14 +996,16 @@ function broadcastPendingUpdate(roomId) {
   }
 }
 
-function applyExtractedSource(room, url, title) {
+function applyExtractedSource(room, url, title, thumbnail) {
   const yt = parseYouTube(url);
   if (yt) {
     room.source = yt;
     room.sourceType = "youtube";
+    room.thumbnail = `https://img.youtube.com/vi/${yt}/hqdefault.jpg`;
   } else {
     room.source = url;
     room.sourceType = detectStreamType(url);
+    room.thumbnail = thumbnail || null;
   }
   room.sourcePage = url;
   room.title = title || null;
@@ -1040,6 +1048,8 @@ function finalizeJoinOther(targetSocket, roomId, room, hostKey) {
     source: room.source,
     sourceType: room.sourceType,
     sourcePage: room.sourcePage || null,
+    title: room.title || null,
+    thumbnail: room.thumbnail || null,
     currentTime: projectedTime(room),
     isPlaying: room.isPlaying,
     hostSocketId: room.hostSocketId,
@@ -1391,7 +1401,7 @@ io.on("connection", (socket) => {
 
   socket.on("leave-room", () => leaveCurrentRoom());
 
-  socket.on("set-source", ({ source, sourceType, sourcePage, title }) => {
+  socket.on("set-source", ({ source, sourceType, sourcePage, title, thumbnail }) => {
     const ctx = requireMember();
     if (!ctx) return;
     if (typeof source !== "string" || typeof sourceType !== "string") return;
@@ -1402,6 +1412,7 @@ io.on("connection", (socket) => {
     ctx.room.sourceType = sourceType;
     ctx.room.sourcePage = (typeof sourcePage === "string" && sourcePage) ? sourcePage : null;
     ctx.room.title = (typeof title === "string" && title) ? title : null;
+    ctx.room.thumbnail = (typeof thumbnail === "string" && thumbnail) ? thumbnail : null;
     ctx.room.currentTime = 0;
     ctx.room.isPlaying = false;
     ctx.room.lastUpdated = Date.now();
@@ -1413,6 +1424,7 @@ io.on("connection", (socket) => {
       sourceType,
       sourcePage: ctx.room.sourcePage,
       title: ctx.room.title,
+      thumbnail: ctx.room.thumbnail,
       playedBy: socket.id,
       playedByName: socket.userName,
       roomId: ctx.rid,
@@ -1426,7 +1438,8 @@ io.on("connection", (socket) => {
       source,
       sourceType,
       sourcePage: ctx.room.sourcePage,
-      title: ctx.room.title
+      title: ctx.room.title,
+      thumbnail: ctx.room.thumbnail
     });
   });
 
@@ -1439,7 +1452,7 @@ io.on("connection", (socket) => {
   });
 
   // Queue events
-  socket.on("queue-suggest", ({ url, title }) => {
+  socket.on("queue-suggest", ({ url, title, thumbnail }) => {
     const ctx = requireMember();
     if (!ctx) return;
     if (typeof url !== "string") return;
@@ -1447,6 +1460,7 @@ io.on("connection", (socket) => {
       id: crypto.randomBytes(4).toString("hex"),
       url,
       title: title || "Suggested video",
+      thumbnail: thumbnail || null,
       addedBy: socket.id,
       addedByName: socket.userName,
       timestamp: Date.now()
@@ -1751,7 +1765,7 @@ io.on("connection", (socket) => {
     broadcastRoomUpdate(ctx.rid);
   });
 
-  socket.on("suggest-video", ({ url }) => {
+  socket.on("suggest-video", ({ url, title, thumbnail }) => {
     const ctx = requireMember();
     if (!ctx) return;
     if (typeof url !== "string" || !url.trim()) return;
@@ -1760,6 +1774,8 @@ io.on("connection", (socket) => {
     ctx.room.votes.push({
       id: crypto.randomBytes(4).toString("hex"),
       url: url.trim().slice(0, 500),
+      title: (typeof title === "string" && title) ? title : "Suggested video",
+      thumbnail: (typeof thumbnail === "string" && thumbnail) ? thumbnail : null,
       suggestedBy: socket.id,
       suggestedByName: socket.userName,
       voters: new Set([socket.id]),
@@ -1789,12 +1805,13 @@ io.on("connection", (socket) => {
     if (idx === -1) return;
     const vote = ctx.room.votes[idx];
     ctx.room.votes.splice(idx, 1);
-    applyExtractedSource(ctx.room, vote.url, vote.title);
+    applyExtractedSource(ctx.room, vote.url, vote.title, vote.thumbnail);
     io.to(ctx.rid).emit("source-changed", {
       source: ctx.room.source,
       sourceType: ctx.room.sourceType,
       sourcePage: ctx.room.sourcePage || null,
       title: ctx.room.title || null,
+      thumbnail: ctx.room.thumbnail || null,
     });
     io.to(ctx.rid).emit("votes-updated", {
       votes: serializeVotes(ctx.room.votes),
@@ -1907,12 +1924,13 @@ io.on("connection", (socket) => {
     const idx = ctx.room.votes.findIndex((v) => v.id === top.id);
     if (idx === -1) return;
     ctx.room.votes.splice(idx, 1);
-    applyExtractedSource(ctx.room, top.url, top.title);
+    applyExtractedSource(ctx.room, top.url, top.title, top.thumbnail);
     io.to(ctx.rid).emit("source-changed", {
       source: ctx.room.source,
       sourceType: ctx.room.sourceType,
       sourcePage: ctx.room.sourcePage || null,
-      title: ctx.room.title || null
+      title: ctx.room.title || null,
+      thumbnail: ctx.room.thumbnail || null
     });
     io.to(ctx.rid).emit("votes-updated", {
       votes: serializeVotes(ctx.room.votes),

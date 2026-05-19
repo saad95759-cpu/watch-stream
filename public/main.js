@@ -930,6 +930,15 @@ function initRoom(roomId) {
     } else if (state.source) {
       if (state.sourcePage) currentSourcePage = state.sourcePage;
       loadSource(state.source, state.sourceType, state.currentTime, state.isPlaying);
+      const displayUrl = state.sourcePage || state.source;
+      const displayTitle = state.title || getTitleFromUrl(displayUrl);
+      addLocalHistory({
+        url: displayUrl,
+        title: displayTitle,
+        type: state.sourceType,
+        thumbnail: state.thumbnail || null,
+        time: Date.now()
+      });
     }
 
     if (state.voipPeers && state.voipPeers.length > 0) {
@@ -1277,9 +1286,25 @@ function initRoom(roomId) {
   document.getElementById("suggest-form").addEventListener("submit", (e) => {
     e.preventDefault();
     const input = document.getElementById("suggest-url");
-    const url = input.value.trim();
+    let url = input.value.trim();
     if (!url) return;
-    socket.emit("suggest-video", { url });
+    if (!/^https?:\/\//i.test(url) && /\.\w{2,}/.test(url)) {
+      url = "https://" + url;
+    }
+    const yt = parseYouTube(url);
+    if (yt) {
+      socket.emit("suggest-video", {
+        url,
+        title: "YouTube Video",
+        thumbnail: `https://img.youtube.com/vi/${yt}/hqdefault.jpg`
+      });
+    } else {
+      socket.emit("suggest-video", {
+        url,
+        title: getTitleFromUrl(url),
+        thumbnail: null
+      });
+    }
     input.value = "";
   });
 
@@ -1585,12 +1610,24 @@ function initRoom(roomId) {
     }
     const yt = parseYouTube(url);
     if (yt) {
-      socket.emit("set-source", { source: yt, sourceType: "youtube", sourcePage: url });
+      socket.emit("set-source", {
+        source: yt,
+        sourceType: "youtube",
+        sourcePage: url,
+        title: "YouTube Video",
+        thumbnail: `https://img.youtube.com/vi/${yt}/hqdefault.jpg`
+      });
       return;
     }
     const detected = detectSourceType(url);
     if (detected) {
-      socket.emit("set-source", { source: url, sourceType: detected, sourcePage: url });
+      socket.emit("set-source", {
+        source: url,
+        sourceType: detected,
+        sourcePage: url,
+        title: getTitleFromUrl(url),
+        thumbnail: null
+      });
     } else if (/^https?:\/\//i.test(url)) {
       const btn = document.getElementById("extract-btn");
       if (btn) btn.click();
@@ -1778,7 +1815,8 @@ function initRoom(roomId) {
             source: data.videoId,
             sourceType: "youtube",
             sourcePage: url,
-            title: data.title || "YouTube Video"
+            title: data.title || "YouTube Video",
+            thumbnail: data.thumbnail || `https://img.youtube.com/vi/${data.videoId}/hqdefault.jpg`
           });
           showExtractStatus("YouTube video loaded! Use ▶ YT Quality to pick resolution.", "ok");
           setTimeout(() => showExtractStatus("", null), 5000);
@@ -1793,6 +1831,7 @@ function initRoom(roomId) {
             streams: data.allStreams,
             title: data.title,
             sourcePage: data.sourcePage || url,
+            thumbnail: data.thumbnail || null
           });
         } else if (!res.ok || !data.streamUrl) {
           showExtractStatus(data.error || "Could not extract a playable stream.", "error");
@@ -1803,7 +1842,8 @@ function initRoom(roomId) {
             source: data.streamUrl,
             sourceType: data.type || "mp4",
             sourcePage: data.sourcePage || url,
-            title: data.title || null
+            title: data.title || null,
+            thumbnail: data.thumbnail || null
           });
           setTimeout(() => showExtractStatus("", null), 4000);
         }
@@ -1862,9 +1902,15 @@ function initRoom(roomId) {
     btn.addEventListener("click", () => switchScannerTab(btn.dataset.tab));
   });
 
-  function loadStream(streamUrl, streamType, sourcePage, title, allStreams) {
+  function loadStream(streamUrl, streamType, sourcePage, title, allStreams, thumbnail) {
     if (sourcePage) currentSourcePage = sourcePage;
-    socket.emit("set-source", { source: streamUrl, sourceType: streamType || "mp4", sourcePage: sourcePage || null, title: title || null });
+    socket.emit("set-source", {
+      source: streamUrl,
+      sourceType: streamType || "mp4",
+      sourcePage: sourcePage || null,
+      title: title || null,
+      thumbnail: thumbnail || null
+    });
     const label = title ? `"${title}"` : "stream";
     showExtractStatus(`Loaded ${label}.`, "ok");
     setTimeout(closePasteModal, 600);
@@ -1892,7 +1938,7 @@ function initRoom(roomId) {
         const badge = s.type === "hls" ? "HLS" : s.type === "dash" ? "DASH" : "MP4";
         btn.innerHTML = `<span class="stream-badge stream-badge-${s.type}">${badge}</span> ${s.label || "stream"}`;
         btn.title = s.url;
-        btn.addEventListener("click", () => loadStream(s.url, s.type, data.sourcePage, data.title, streams));
+        btn.addEventListener("click", () => loadStream(s.url, s.type, data.sourcePage, data.title, streams, data.thumbnail));
         scannerStreamList.appendChild(btn);
       });
     }
@@ -2748,6 +2794,11 @@ function renderLocalHistory() {
 
     if (isYoutube && ytId) {
       thumbnailHtml = `<img class="history-thumb" src="https://img.youtube.com/vi/${ytId}/hqdefault.jpg" alt="thumbnail" />`;
+    } else if (item.thumbnail) {
+      thumbnailHtml = `
+        <img class="history-thumb" src="${item.thumbnail}" alt="thumbnail" onerror="this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
+        <div class="history-thumb-placeholder" style="display:none;">🎬</div>
+      `;
     } else {
       thumbnailHtml = `<div class="history-thumb-placeholder">🎬</div>`;
     }
@@ -2850,7 +2901,24 @@ if (sugForm) {
     e.preventDefault();
     const input = document.getElementById("suggest-url");
     if (input && input.value.trim() && typeof socket !== "undefined") {
-      socket.emit("queue-suggest", { url: input.value.trim() });
+      let url = input.value.trim();
+      if (!/^https?:\/\//i.test(url) && /\.\w{2,}/.test(url)) {
+        url = "https://" + url;
+      }
+      const yt = parseYouTube(url);
+      if (yt) {
+        socket.emit("queue-suggest", {
+          url,
+          title: "YouTube Video",
+          thumbnail: `https://img.youtube.com/vi/${yt}/hqdefault.jpg`
+        });
+      } else {
+        socket.emit("queue-suggest", {
+          url,
+          title: getTitleFromUrl(url),
+          thumbnail: null
+        });
+      }
       input.value = "";
       showToast("Suggestion sent for approval", "success");
     }
@@ -2859,11 +2927,17 @@ if (sugForm) {
 
 // React to source changes to populate local history
 if (typeof socket !== "undefined") {
-  socket.on("source-changed", ({ source, sourceType, sourcePage, title }) => {
+  socket.on("source-changed", ({ source, sourceType, sourcePage, title, thumbnail }) => {
     if (source) {
       const displayUrl = sourcePage || source;
       const displayTitle = title || getTitleFromUrl(displayUrl);
-      addLocalHistory({ url: displayUrl, title: displayTitle, type: sourceType, time: Date.now() });
+      addLocalHistory({
+        url: displayUrl,
+        title: displayTitle,
+        type: sourceType,
+        thumbnail: thumbnail || null,
+        time: Date.now()
+      });
     }
   });
 
@@ -2900,21 +2974,6 @@ document.querySelectorAll(".reaction-btn").forEach(btn => {
   };
 });
 
-const reactionToggleBtn = document.getElementById("reaction-toggle-btn");
-const reactionBar = document.getElementById("reaction-bar");
-if (reactionToggleBtn && reactionBar) {
-  reactionToggleBtn.onclick = (e) => {
-    e.stopPropagation();
-    reactionBar.hidden = !reactionBar.hidden;
-  };
-  // Close the bar if clicking outside of the container
-  document.addEventListener("click", (e) => {
-    const container = document.getElementById("reaction-container");
-    if (container && !container.contains(e.target) && !reactionBar.hidden) {
-      reactionBar.hidden = true;
-    }
-  });
-}
 
 // Auto-advance logic (hook into mp4El ended if possible)
 const mp4ElRef = document.getElementById("mp4-player");

@@ -1560,67 +1560,28 @@ html[dir="rtl"] .toast { animation: toastInRtl 0.35s var(--transition-slow) both
 
 
 
-
-
-
-
-
-/* ===== Reactions ===== */
-.reaction-container {
-  position: absolute;
-  bottom: 20px;
-  right: 20px;
+.chat-reactions-bar {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  z-index: 10;
+  justify-content: space-around;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  gap: 4px;
 }
-.reaction-bar {
-  display: flex;
-  gap: 8px;
-  background: rgba(12, 16, 28, 0.6);
-  backdrop-filter: blur(8px);
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,0.1);
-  animation: slide-in 0.2s ease-out;
-}
-.reaction-bar[hidden] {
-  display: none;
-}
-.reaction-toggle-btn {
-  background: rgba(12, 16, 28, 0.6);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255,255,255,0.1);
-  padding: 8px;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  font-size: 20px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.2s, background var(--transition-fast);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-}
-.reaction-toggle-btn:hover {
-  transform: scale(1.1);
-  background: rgba(12, 16, 28, 0.85);
-}
-
-
-
-
-
-.reaction-btn {
-  background: transparent;
+.chat-reactions-bar .reaction-btn {
+  background: none;
   border: none;
   font-size: 20px;
+  padding: 4px 8px;
   cursor: pointer;
-  transition: transform 0.2s;
+  border-radius: 6px;
+  transition: all var(--transition-fast);
 }
-.reaction-btn:hover { transform: scale(1.2); }
+.chat-reactions-bar .reaction-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: scale(1.2);
+}
 .reaction-canvas {
   position: absolute;
   bottom: 60px;
