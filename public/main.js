@@ -2833,7 +2833,7 @@ if (typeof socket !== "undefined") {
     el.innerHTML = emoji;
     el.style.left = Math.random() * 80 + 10 + "%";
     canvas.appendChild(el);
-    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 3000);
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 5000);
   });
 }
 
