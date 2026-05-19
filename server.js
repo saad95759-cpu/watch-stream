@@ -63,6 +63,11 @@ const VALID_SOURCE_TYPES = ["youtube", "mp4", "hls", "dash"];
 
 const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
+const JS_STREAMING_HOSTS = [
+  "abyssplayer", "abysscdn", "turbovid", "anafast", "vidspeed", 
+  "vidoba", "krakenfiles", "vidsonic", "byselapuix", "minochinos", "savefiles"
+];
+
 const DRM_KEYWORDS = [
   "netflix", "nflxvideo", "nflxso",
   "disneyplus", "disney-plus", "bamgrid", "dssott",
@@ -441,17 +446,16 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       }
     }
   } catch { /* fall through to yt-dlp */ }
+  const isJsHost = JS_STREAMING_HOSTS.some(h => url.toLowerCase().includes(h));
   try {
     let info;
-    try {
-      info = await ytDlpExtract(url);
-    } catch (ytErr) {
+    if (isJsHost) {
       const browserResult = await browserExtract(url).catch(() => null);
       if (browserResult?.streamUrl) {
         const data = {
           streamUrl: browserResult.streamUrl,
           type: browserResult.type || detectStreamType(browserResult.streamUrl),
-          title: browserResult.title || null,
+          title: browserResult.title || "Extracted Stream",
           duration: null,
           isLive: false,
           thumbnail: null,
@@ -463,6 +467,30 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
         }
         extractCache.set(url, { t: Date.now(), data });
         return res.json(data);
+      }
+    }
+    try {
+      info = await ytDlpExtract(url);
+    } catch (ytErr) {
+      if (!isJsHost) {
+        const browserResult = await browserExtract(url).catch(() => null);
+        if (browserResult?.streamUrl) {
+          const data = {
+            streamUrl: browserResult.streamUrl,
+            type: browserResult.type || detectStreamType(browserResult.streamUrl),
+            title: browserResult.title || null,
+            duration: null,
+            isLive: false,
+            thumbnail: null,
+            sourcePage: url,
+          };
+          if (extractCache.size >= EXTRACT_CACHE_MAX) {
+            const oldest = extractCache.keys().next().value;
+            if (oldest !== undefined) extractCache.delete(oldest);
+          }
+          extractCache.set(url, { t: Date.now(), data });
+          return res.json(data);
+        }
       }
       throw ytErr;
     }
@@ -752,6 +780,10 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
   }
 
   if (detectDrm(url)) return res.status(200).json({ drm: true, streams: [], error: "DRM-protected site — use Share Browser Tab instead." });
+  const isJsHost = JS_STREAMING_HOSTS.some(h => url.toLowerCase().includes(h));
+  if (isJsHost) {
+    return res.status(200).json({ streams: [], error: "Platform requires browser execution — initializing deep extraction..." });
+  }
   const safe = await urlIsSafeForExtraction(url);
   if (!safe) return res.status(400).json({ error: "URL host is not allowed." });
 

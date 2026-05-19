@@ -126,44 +126,86 @@ process.on("SIGINT", () => __cleanupAndExit(0));
       }
     });
 
+    // Disable popups and redirects before page creation
+    await ctx.addInitScript(() => {
+      window.open = () => null;
+      window.alert = () => {};
+      window.confirm = () => true;
+      window.prompt = () => null;
+    });
+
     const page = await ctx.newPage();
-    // Block heavy junk + enforce SSRF protection on every sub-request.
+    
+    // Block heavy junk + ad domains + enforce SSRF protection on every sub-request.
     await page.route("**/*", (route) => {
       const r = route.request();
       const rt = r.resourceType();
+      const ru = r.url();
       let host = "";
-      try { host = new URL(r.url()).hostname; } catch { /* malformed */ }
+      try { host = new URL(ru).hostname; } catch { /* malformed */ }
       if (isPrivateAddress(host)) return route.abort();
+      
+      // Block known ad network/tracker keywords to speed up load and prevent redirection
+      if (/(adsbygoogle|doubleclick|adnxs|exoclick|popads|popcash|propellerads|a-ads|juicyads|onclickads|adsterra|yandex|google-analytics|amplitude|facebook\.net|taboola|outbrain|googleadservices)/i.test(ru)) {
+        return route.abort();
+      }
+      
       if (rt === "image" || rt === "font") return route.abort();
       return route.continue();
     });
+
+    const triggerPlayAcrossFrames = async () => {
+      for (const frame of page.frames()) {
+        try {
+          await frame.evaluate(() => {
+            // 1. Play video elements
+            const videos = document.querySelectorAll("video");
+            videos.forEach(v => {
+              v.muted = true;
+              try { v.play().catch(() => {}); } catch {}
+            });
+            // 2. Click common play buttons/icons/overlays
+            const selectors = [
+              ".play-button", ".playBtn", ".vjs-big-play-button", ".jw-display-icon-container",
+              ".jw-icon-playback", "[class*='play']", "[id*='play']", ".player-play", ".play-icon",
+              "button.play", "a.play"
+            ];
+            selectors.forEach(sel => {
+              try {
+                const el = document.querySelector(sel);
+                if (el && typeof el.click === "function") el.click();
+              } catch {}
+            });
+            // 3. Click text buttons
+            document.querySelectorAll("button, div, span, a").forEach((el) => {
+              const t = (el.textContent || "").trim().toLowerCase();
+              if (/^(play|i agree|enter|continue|accept|got it|ok|start|watch)$/i.test(t)) {
+                try { el.click(); } catch {}
+              }
+            });
+          }).catch(() => {});
+        } catch {
+          // ignore frame errors
+        }
+      }
+    };
 
     let title = "";
     try {
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT });
       title = (await page.title().catch(() => "")) || "";
-      // Try to trigger playback
-      await page.evaluate(() => {
-        const v = document.querySelector("video");
-        if (v) {
-          v.muted = true;
-          v.play().catch(() => {});
-        }
-        document.querySelectorAll("button,div,span").forEach((el) => {
-          const t = (el.textContent || "").trim().toLowerCase();
-          if (/^(play|i agree|enter|continue|accept|got it|ok)$/.test(t)) {
-            try { el.click(); } catch {}
-          }
-        });
-      }).catch(() => {});
-      // Let network requests settle
-      await page.waitForTimeout(SETTLE_MS);
-      // Try one more play() in case the player loaded late
-      await page.evaluate(() => {
-        const v = document.querySelector("video");
-        if (v) v.play().catch(() => {});
-      }).catch(() => {});
+      
+      // Trigger play immediately on DOM loaded
+      await triggerPlayAcrossFrames();
       await page.waitForTimeout(2000);
+      
+      // Settle network requests and trigger play again
+      await triggerPlayAcrossFrames();
+      await page.waitForTimeout(SETTLE_MS - 2000);
+      
+      // Final trigger in case of late loading
+      await triggerPlayAcrossFrames();
+      await page.waitForTimeout(1000);
     } catch (e) {
       // Continue with whatever we caught so far
     }
