@@ -783,6 +783,13 @@ app.post(`${BASE_PATH}api/extract-from-html`, (req, res) => {
   const html = typeof req.body?.html === "string" ? req.body.html : "";
   if (!html || html.length < 20) return res.status(400).json({ error: "Paste the page source first." });
   if (html.length > 4 * 1024 * 1024) return res.status(413).json({ error: "Pasted content is too large (limit 4 MB)." });
+  
+  const iframeUrl = findVideoIframe(html);
+  if (iframeUrl) {
+    let resolvedIframeUrl = iframeUrl;
+    return res.json({ streams: [], redirectUrl: resolvedIframeUrl });
+  }
+
   const result = scanHtmlForStreams(html);
   if (result.error && result.streams.length === 0) return res.status(422).json(result);
   res.json(result);

@@ -2012,7 +2012,29 @@ function initRoom(roomId) {
         body: JSON.stringify({ html }),
       });
       const data = await res.json();
-      if (!res.ok || !data.streams || data.streams.length === 0) {
+      if (data.redirectUrl) {
+        showPasteStatus("Found embedded server! Resolving video stream via browser...", "info");
+        const extRes = await fetch(`${BASE}api/extract`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: data.redirectUrl }),
+        });
+        const extData = await extRes.json();
+        if (!extRes.ok || !extData.streamUrl) {
+          showPasteStatus(extData.error || "Could not extract stream from the embedded server.", "error");
+        } else {
+          socket.emit("set-source", {
+            source: extData.streamUrl,
+            sourceType: extData.type || "mp4",
+            sourcePage: extData.sourcePage || data.redirectUrl,
+            title: extData.title || "Extracted Video",
+            thumbnail: extData.thumbnail || null
+          });
+          pasteModal.hidden = true;
+          showExtractStatus("Stream loaded successfully!", "ok");
+          setTimeout(() => showExtractStatus("", null), 5000);
+        }
+      } else if (!res.ok || !data.streams || data.streams.length === 0) {
         showPasteStatus(data.error || "No stream URL found in the pasted source.", "error");
       } else {
         renderStreamResults(data);
