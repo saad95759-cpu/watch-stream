@@ -1097,7 +1097,12 @@ function initRoom(roomId) {
     appendSystemMessage(text);
   });
 
-  socket.on("user-joined", ({ name }) => appendSystemMessage(`${name} joined`));
+  socket.on("user-joined", ({ id, name }) => {
+    appendSystemMessage(`${name} joined`);
+    if (id && id !== myId && voipActive) {
+      createVoipOffer(id);
+    }
+  });
   socket.on("user-left", ({ id }) => {
     appendSystemMessage("Someone left");
     if (id) {
@@ -1323,11 +1328,31 @@ function initRoom(roomId) {
   });
 
   const micBtn = document.getElementById("mic-btn");
+  const speakerBtn = document.getElementById("speaker-btn");
   let voipActive = false;
+  let speakerActive = true;
   let voipStream = null;
   const voipPeers = new Map();
   const voipAudios = new Map();
   const activeSpeakers = new Set();
+
+  if (speakerBtn) {
+    speakerBtn.classList.add("active");
+    speakerBtn.textContent = "\u{1F50A} Speaker";
+    speakerBtn.addEventListener("click", () => {
+      speakerActive = !speakerActive;
+      if (speakerActive) {
+        speakerBtn.classList.add("active");
+        speakerBtn.textContent = "\u{1F50A} Speaker";
+      } else {
+        speakerBtn.classList.remove("active");
+        speakerBtn.textContent = "\u{1F507} Muted";
+      }
+      for (const audio of voipAudios.values()) {
+        audio.muted = !speakerActive;
+      }
+    });
+  }
 
   micBtn.addEventListener("click", () => {
     if (voipActive) stopVoip();
@@ -1350,6 +1375,13 @@ function initRoom(roomId) {
           createVoipOffer(pid);
         }
       }
+
+      // Initiate connections to other participants we don't have a peer connection with yet
+      participantList.forEach((p) => {
+        if (p.id && p.id !== myId && !voipPeers.has(p.id)) {
+          createVoipOffer(p.id);
+        }
+      });
 
       socket.emit("voip-join");
     } catch (err) {
@@ -1469,6 +1501,7 @@ function initRoom(roomId) {
           voipAudios.set(peerId, audio);
         }
         audio.srcObject = e.streams[0];
+        audio.muted = !speakerActive;
         audio.play().catch(() => {});
       };
     }
@@ -1485,6 +1518,7 @@ function initRoom(roomId) {
   }
 
   async function createVoipOffer(peerId) {
+    if (myId <= peerId) return; // Prevent WebRTC glare by only allowing the peer with the greater socket ID to offer
     try {
       const pc = createVoipPeer(peerId);
       const offer = await pc.createOffer({ offerToReceiveAudio: true });
