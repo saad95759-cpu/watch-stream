@@ -289,10 +289,14 @@ function initLobby() {
     createBtn.textContent = "Creating\u2026";
     try {
       const pw = document.getElementById("create-room-password").value.trim();
+      const isPublicChecked = document.getElementById("create-room-public")?.checked || false;
+      const body = {};
+      if (pw) body.password = pw;
+      if (isPublicChecked) body.isPublic = true;
       const res = await fetch(`${BASE}api/rooms`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pw ? { password: pw } : {}),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         showLobbyError("Could not create room. Please try again.");
@@ -323,6 +327,137 @@ function initLobby() {
     }
     enterRoom(id);
   });
+
+  // --- Public rooms: fetch & render ---
+  async function fetchPublicRooms() {
+    try {
+      const res = await fetch(`${BASE}api/public-rooms`);
+      if (!res.ok) return;
+      const data = await res.json();
+      renderPublicRooms(data.rooms || []);
+    } catch { /* ignore */ }
+  }
+
+  function renderPublicRooms(rooms) {
+    const list = document.getElementById("public-rooms-list");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!rooms || rooms.length === 0) {
+      list.innerHTML = '<p class="hint" data-i18n="lobby-no-public-rooms">No active public rooms right now. Create one to get started!</p>';
+      return;
+    }
+    rooms.forEach((room) => {
+      const card = document.createElement("div");
+      card.className = "public-room-card";
+      card.setAttribute("role", "button");
+      card.setAttribute("tabindex", "0");
+
+      // Thumbnail
+      if (room.thumbnail) {
+        const img = document.createElement("img");
+        img.className = "public-room-thumb";
+        img.src = room.thumbnail;
+        img.alt = room.title || "Room thumbnail";
+        img.loading = "lazy";
+        img.onerror = function() {
+          const ph = document.createElement("div");
+          ph.className = "public-room-thumb-placeholder";
+          ph.textContent = "\u{1F3AC}";
+          this.replaceWith(ph);
+        };
+        card.appendChild(img);
+      } else {
+        const ph = document.createElement("div");
+        ph.className = "public-room-thumb-placeholder";
+        ph.textContent = "\u{1F3AC}";
+        card.appendChild(ph);
+      }
+
+      // Info
+      const info = document.createElement("div");
+      info.className = "public-room-info";
+      const title = document.createElement("div");
+      title.className = "public-room-name";
+      title.textContent = room.title || "Watch Party";
+      info.appendChild(title);
+
+      const meta = document.createElement("div");
+      meta.className = "public-room-meta";
+      const users = document.createElement("span");
+      users.className = "public-users-count";
+      users.textContent = `\u{1F464} ${room.participantCount}`;
+      meta.appendChild(users);
+      if (room.sourceType) {
+        const badge = document.createElement("span");
+        badge.className = "public-room-badge";
+        badge.style.background = room.sourceType === "youtube" ? "rgba(255, 0, 0, 0.2)" : "rgba(0, 240, 255, 0.15)";
+        badge.style.color = room.sourceType === "youtube" ? "#ff4444" : "var(--primary)";
+        badge.textContent = room.sourceType === "youtube" ? "YT" : room.sourceType.toUpperCase();
+        meta.appendChild(badge);
+      }
+      info.appendChild(meta);
+      card.appendChild(info);
+
+      // Join arrow
+      const arrow = document.createElement("span");
+      arrow.className = "public-room-join-arrow";
+      arrow.textContent = "\u2192";
+      card.appendChild(arrow);
+
+      // Click: prompt for guest name if not set, then join
+      const joinAction = () => {
+        const savedName = safeGet("wp-name");
+        const lobbyNameVal = nameInput.value.trim();
+        if (savedName || lobbyNameVal) {
+          if (lobbyNameVal) persistName(lobbyNameVal);
+          enterRoom(room.id);
+        } else {
+          showGuestModal(room.id);
+        }
+      };
+      card.addEventListener("click", joinAction);
+      card.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); joinAction(); }
+      });
+
+      list.appendChild(card);
+    });
+  }
+
+  function showGuestModal(roomId) {
+    const modal = document.getElementById("guest-name-modal");
+    const input = document.getElementById("guest-name-input");
+    const joinBtn = document.getElementById("guest-join-btn");
+    const cancelBtn = document.getElementById("guest-cancel-btn");
+    if (!modal || !input) return;
+    modal.hidden = false;
+    input.value = "";
+    input.focus();
+
+    function cleanup() {
+      modal.hidden = true;
+      joinBtn.removeEventListener("click", doJoin);
+      cancelBtn.removeEventListener("click", doCancel);
+      input.removeEventListener("keydown", onKey);
+    }
+    function doJoin() {
+      const name = input.value.trim() || "Guest";
+      persistName(name);
+      nameInput.value = name;
+      cleanup();
+      enterRoom(roomId);
+    }
+    function doCancel() { cleanup(); }
+    function onKey(e) { if (e.key === "Enter") doJoin(); }
+
+    joinBtn.addEventListener("click", doJoin);
+    cancelBtn.addEventListener("click", doCancel);
+    input.addEventListener("keydown", onKey);
+  }
+
+  // Fetch public rooms immediately and poll every 10s
+  fetchPublicRooms();
+  publicRoomsInterval = setInterval(fetchPublicRooms, 10000);
 
   const openAdminBtn = document.getElementById("open-admin-btn");
   if (openAdminBtn) {
@@ -473,6 +608,7 @@ function initRoom(roomId) {
   let roomHistoryList = [];
   let pendingList = [];
   let requireApproval = false;
+  let roomIsPublic = false;
   let lastPassword = null;
 
   let playerKind = null;
@@ -915,6 +1051,7 @@ function initRoom(roomId) {
     voteList = state.votes || [];
     pendingList = state.pending || [];
     requireApproval = !!state.requireApproval;
+    roomIsPublic = !!state.isPublic;
     showView("room");
 
     if (state.hostKey) sessSet("wp-host-key-" + roomId, state.hostKey);
@@ -990,6 +1127,8 @@ function initRoom(roomId) {
     const m = document.getElementById("room-settings-modal");
     const at = document.getElementById("approval-toggle");
     if (at) at.checked = requireApproval;
+    const pt = document.getElementById("public-toggle");
+    if (pt) pt.checked = !!roomIsPublic;
     if (m) m.hidden = false;
   });
   document.getElementById("room-settings-close")?.addEventListener("click", () => {
@@ -998,6 +1137,15 @@ function initRoom(roomId) {
   });
   document.getElementById("approval-toggle")?.addEventListener("change", (e) => {
     socket.emit("set-room-approval", { enabled: !!e.target.checked });
+  });
+  document.getElementById("public-toggle")?.addEventListener("change", (e) => {
+    socket.emit("set-room-public", { enabled: !!e.target.checked });
+  });
+
+  socket.on("public-mode-updated", ({ isPublic }) => {
+    roomIsPublic = !!isPublic;
+    const pt = document.getElementById("public-toggle");
+    if (pt) pt.checked = roomIsPublic;
   });
 
   document.getElementById("play-top-btn")?.addEventListener("click", () => {

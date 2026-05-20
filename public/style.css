@@ -359,6 +359,28 @@ input[type="text"]::placeholder, input[type="url"]::placeholder, input[type="pas
   color: var(--primary);
   font-weight: 600;
 }
+.public-room-join-arrow {
+  font-size: 18px;
+  color: var(--primary);
+  opacity: 0.5;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  flex-shrink: 0;
+}
+.public-room-card:hover .public-room-join-arrow {
+  opacity: 1;
+  transform: translateX(3px);
+}
+
+/* Guest Name Modal */
+.guest-modal-card {
+  max-width: 360px;
+}
+.guest-modal-card h3 {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
 
 .lobby-checkbox-row {
   display: flex;
