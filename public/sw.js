@@ -1,4 +1,4 @@
-const CACHE_NAME = 'watch-party-v1';
+const CACHE_NAME = 'watch-party-v2';
 const OFFLINE_URL = '/watch-party/offline.html';
 
 const SHELL_FILES = [
@@ -36,16 +36,25 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Network-first strategy: always try the network, fall back to cache
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) return cachedResponse;
-
-      return fetch(event.request).catch(() => {
-        // Fallback to offline page for navigations
-        if (event.request.mode === 'navigate') {
-          return caches.match(OFFLINE_URL);
-        }
-      });
-    })
+    fetch(event.request)
+      .then((response) => {
+        // Clone the response and update the cache
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, clone);
+        });
+        return response;
+      })
+      .catch(() => {
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) return cachedResponse;
+          // Fallback to offline page for navigations
+          if (event.request.mode === 'navigate') {
+            return caches.match(OFFLINE_URL);
+          }
+        });
+      })
   );
 });
