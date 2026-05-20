@@ -170,6 +170,7 @@ function dismissToast(toast) {
 }
 
 let isSuperAdmin = false;
+let publicRoomsInterval = null;
 const myName = safeGet("wp-name") || "Guest";
 
 const socket = io({ path: `${BASE}socket.io` });
@@ -182,6 +183,11 @@ function showView(name) {
   if (adminLoginEl) adminLoginEl.hidden = name !== "admin-login";
   const pendingEl = document.getElementById("pending-screen");
   if (pendingEl) pendingEl.hidden = name !== "pending-screen";
+
+  if (name !== "lobby" && publicRoomsInterval) {
+    clearInterval(publicRoomsInterval);
+    publicRoomsInterval = null;
+  }
 }
 
 function detectSourceType(url) {
@@ -792,6 +798,7 @@ function initRoom(roomId) {
   const tabContents = {
     chat: document.getElementById("tab-chat"),
     users: document.getElementById("tab-users"),
+    queue: document.getElementById("tab-queue"),
     votes: document.getElementById("tab-votes"),
     pending: document.getElementById("tab-pending"),
   };
@@ -1055,9 +1062,20 @@ function initRoom(roomId) {
     renderVoteList();
   });
 
-  socket.on("source-changed", ({ source, sourceType, sourcePage }) => {
+  socket.on("source-changed", ({ source, sourceType, sourcePage, title, thumbnail }) => {
     if (sourcePage) currentSourcePage = sourcePage;
     loadSource(source, sourceType, 0, false);
+    if (source) {
+      const displayUrl = sourcePage || source;
+      const displayTitle = title || getTitleFromUrl(displayUrl);
+      addLocalHistory({
+        url: displayUrl,
+        title: displayTitle,
+        type: sourceType,
+        thumbnail: thumbnail || null,
+        time: Date.now()
+      });
+    }
   });
 
   socket.on("play", ({ time }) => {
@@ -2759,6 +2777,25 @@ function initRoom(roomId) {
     badgeCount = 0;
     badgeEl.hidden = true;
   }
+  // Expose scoped helpers to global scope for renderQueueAndSuggestions etc.
+  window._wpCanIControl = canIControl;
+  window._wpSocket = socket;
+  window._wpQueueList = () => queueList;
+  window._wpSuggestionsList = () => suggestionsList;
+}
+
+// ===== Shared parseYouTube (global scope) =====
+function parseYouTube(url) {
+  try {
+    const u = new URL(url);
+    if (u.hostname === "youtu.be") return u.pathname.slice(1) || null;
+    if (u.hostname.endsWith("youtube.com")) {
+      if (u.pathname === "/watch") return u.searchParams.get("v");
+      const m = u.pathname.match(/^\/(embed|shorts|live)\/([A-Za-z0-9_-]+)/);
+      if (m) return m[2];
+    }
+  } catch { /* ignore */ }
+  return null;
 }
 
 // ===== History (Local Storage) =====
@@ -2820,31 +2857,61 @@ function renderLocalHistory() {
     const d = document.createElement("div");
     d.className = "history-dropdown-item";
     
-    let thumbnailHtml = "";
     const ytId = getYoutubeId(item.url);
-
     if (ytId) {
-      thumbnailHtml = `<img class="history-thumb" src="https://img.youtube.com/vi/${ytId}/hqdefault.jpg" alt="thumbnail" />`;
+      const img = document.createElement("img");
+      img.className = "history-thumb";
+      img.src = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
+      img.alt = "thumbnail";
+      d.appendChild(img);
     } else if (item.thumbnail) {
-      thumbnailHtml = `
-        <img class="history-thumb" src="${item.thumbnail}" alt="thumbnail" onerror="this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
-        <div class="history-thumb-placeholder" style="display:none;">🎬</div>
-      `;
+      const img = document.createElement("img");
+      img.className = "history-thumb";
+      img.src = item.thumbnail;
+      img.alt = "thumbnail";
+      const placeholder = document.createElement("div");
+      placeholder.className = "history-thumb-placeholder";
+      placeholder.style.display = "none";
+      placeholder.textContent = "🎬";
+      img.onerror = () => {
+        img.style.display = "none";
+        placeholder.style.display = "flex";
+      };
+      d.appendChild(img);
+      d.appendChild(placeholder);
     } else {
-      thumbnailHtml = `<div class="history-thumb-placeholder">🎬</div>`;
+      const placeholder = document.createElement("div");
+      placeholder.className = "history-thumb-placeholder";
+      placeholder.textContent = "🎬";
+      d.appendChild(placeholder);
     }
 
-    d.innerHTML = `
-      ${thumbnailHtml}
-      <div class="history-meta">
-        <div class="title" title="${item.title || item.url}">${item.title || item.url}</div>
-        <div class="url-sub" title="${item.url}">${item.url}</div>
-        <div class="time">${new Date(item.time).toLocaleDateString()}</div>
-      </div>
-    `;
+    const metaDiv = document.createElement("div");
+    metaDiv.className = "history-meta";
+    const titleDiv = document.createElement("div");
+    titleDiv.className = "title";
+    titleDiv.title = item.title || item.url;
+    titleDiv.textContent = item.title || item.url;
+    const urlDiv = document.createElement("div");
+    urlDiv.className = "url-sub";
+    urlDiv.title = item.url;
+    urlDiv.textContent = item.url;
+    const timeDiv = document.createElement("div");
+    timeDiv.className = "time";
+    timeDiv.textContent = new Date(item.time).toLocaleDateString();
+    metaDiv.appendChild(titleDiv);
+    metaDiv.appendChild(urlDiv);
+    metaDiv.appendChild(timeDiv);
+    d.appendChild(metaDiv);
     d.onclick = () => {
       const srcInput = document.getElementById("source-url");
-      if (srcInput) srcInput.value = item.url;
+      if (srcInput) {
+        srcInput.value = item.url;
+        const form = document.getElementById("source-form");
+        if (form) {
+          form.dispatchEvent(new Event("submit"));
+        }
+      }
       document.getElementById("history-dropdown").hidden = true;
     };
     listEl.appendChild(d);
@@ -2866,119 +2933,107 @@ function renderQueueAndSuggestions() {
   const sList = document.getElementById("suggestions-list");
   const sSection = document.getElementById("suggestions-section");
   if (!qList || !sList) return;
+
+  const _queueList = window._wpQueueList ? window._wpQueueList() : [];
+  const _suggestionsList = window._wpSuggestionsList ? window._wpSuggestionsList() : [];
+  const _canControl = window._wpCanIControl ? window._wpCanIControl() : false;
   
   // Render Queue
   qList.innerHTML = "";
-  if (typeof queueList === "undefined" || queueList.length === 0) {
+  if (_queueList.length === 0) {
     qList.innerHTML = '<div class="vote-empty">Queue is empty</div>';
   } else {
-    queueList.forEach((q, idx) => {
+    _queueList.forEach((q) => {
       const card = document.createElement("div");
       card.className = "vote-card";
-      const acts = canIControl() 
-        ? `<button class="btn btn-danger" style="padding:2px 6px; font-size:11px;" onclick="window.removeQueue('${q.id}')">Remove</button>`
-        : "";
-      card.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <div>
-            <div class="vote-url">${q.title || q.url}</div>
-            <div class="vote-meta">Added by ${q.addedByName}</div>
-          </div>
-          <div class="vote-actions">${acts}</div>
-        </div>
-      `;
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;justify-content:space-between;align-items:center;";
+      const info = document.createElement("div");
+      const urlDiv = document.createElement("div");
+      urlDiv.className = "vote-url";
+      urlDiv.textContent = q.title || q.url;
+      const metaDiv = document.createElement("div");
+      metaDiv.className = "vote-meta";
+      metaDiv.textContent = "Added by " + (q.addedByName || "Unknown");
+      info.appendChild(urlDiv);
+      info.appendChild(metaDiv);
+      row.appendChild(info);
+      if (_canControl) {
+        const acts = document.createElement("div");
+        acts.className = "vote-actions";
+        const rmBtn = document.createElement("button");
+        rmBtn.className = "btn btn-danger btn-sm";
+        rmBtn.textContent = "Remove";
+        rmBtn.addEventListener("click", () => window.removeQueue(q.id));
+        acts.appendChild(rmBtn);
+        row.appendChild(acts);
+      }
+      card.appendChild(row);
       qList.appendChild(card);
     });
   }
 
-  // Render Suggestions (Admin/Host only usually, but let's show to all if desired, or restrict)
+  // Render Suggestions (Admin/Host only)
   if (sSection) {
-    sSection.hidden = !canIControl();
+    sSection.hidden = !_canControl;
   }
   sList.innerHTML = "";
-  if (typeof suggestionsList === "undefined" || suggestionsList.length === 0) {
+  if (_suggestionsList.length === 0) {
     sList.innerHTML = '<div class="vote-empty">No suggestions</div>';
   } else {
-    suggestionsList.forEach(s => {
+    _suggestionsList.forEach(s => {
       const card = document.createElement("div");
       card.className = "vote-card";
-      const acts = canIControl() 
-        ? `<button class="btn btn-primary" style="padding:2px 6px; font-size:11px;" onclick="window.approveQueue('${s.id}')">Approve</button>
-           <button class="btn btn-danger" style="padding:2px 6px; font-size:11px;" onclick="window.rejectQueue('${s.id}')">Reject</button>`
-        : "";
-      card.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <div>
-            <div class="vote-url">${s.url}</div>
-            <div class="vote-meta">Suggested by ${s.addedByName}</div>
-          </div>
-          <div class="vote-actions">${acts}</div>
-        </div>
-      `;
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;justify-content:space-between;align-items:center;";
+      const info = document.createElement("div");
+      const urlDiv = document.createElement("div");
+      urlDiv.className = "vote-url";
+      urlDiv.textContent = s.url;
+      const metaDiv = document.createElement("div");
+      metaDiv.className = "vote-meta";
+      metaDiv.textContent = "Suggested by " + (s.addedByName || "Unknown");
+      info.appendChild(urlDiv);
+      info.appendChild(metaDiv);
+      row.appendChild(info);
+      if (_canControl) {
+        const acts = document.createElement("div");
+        acts.className = "vote-actions";
+        const appBtn = document.createElement("button");
+        appBtn.className = "btn btn-primary btn-sm";
+        appBtn.textContent = "Approve";
+        appBtn.addEventListener("click", () => window.approveQueue(s.id));
+        const rejBtn = document.createElement("button");
+        rejBtn.className = "btn btn-danger btn-sm";
+        rejBtn.textContent = "Reject";
+        rejBtn.addEventListener("click", () => window.rejectQueue(s.id));
+        acts.appendChild(appBtn);
+        acts.appendChild(rejBtn);
+        row.appendChild(acts);
+      }
+      card.appendChild(row);
       sList.appendChild(card);
     });
   }
 }
 
-// Attach these to window so inline onclick works
-window.removeQueue = (id) => { if (typeof socket !== "undefined") socket.emit("queue-remove", { id }); };
-window.approveQueue = (id) => { if (typeof socket !== "undefined") socket.emit("queue-approve", { id }); };
-window.rejectQueue = (id) => { if (typeof socket !== "undefined") socket.emit("queue-reject", { id }); };
+// Attach these to window for queue actions
+window.removeQueue = (id) => { const s = window._wpSocket; if (s) s.emit("queue-remove", { id }); };
+window.approveQueue = (id) => { const s = window._wpSocket; if (s) s.emit("queue-approve", { id }); };
+window.rejectQueue = (id) => { const s = window._wpSocket; if (s) s.emit("queue-reject", { id }); };
 
-// Suggest Form
-const sugForm = document.getElementById("suggest-form");
-if (sugForm) {
-  sugForm.onsubmit = (e) => {
-    e.preventDefault();
-    const input = document.getElementById("suggest-url");
-    if (input && input.value.trim() && typeof socket !== "undefined") {
-      let url = input.value.trim();
-      if (!/^https?:\/\//i.test(url) && /\.\w{2,}/.test(url)) {
-        url = "https://" + url;
-      }
-      const yt = parseYouTube(url);
-      if (yt) {
-        socket.emit("queue-suggest", {
-          url,
-          title: "YouTube Video",
-          thumbnail: `https://img.youtube.com/vi/${yt}/hqdefault.jpg`
-        });
-      } else {
-        socket.emit("queue-suggest", {
-          url,
-          title: getTitleFromUrl(url),
-          thumbnail: null
-        });
-      }
-      input.value = "";
-      showToast("Suggestion sent for approval", "success");
-    }
-  };
-}
+// Note: suggest-form submit handler is inside initRoom() — no duplicate here.
 
 // React to source changes to populate local history
 if (typeof socket !== "undefined") {
-  socket.on("source-changed", ({ source, sourceType, sourcePage, title, thumbnail }) => {
-    if (source) {
-      const displayUrl = sourcePage || source;
-      const displayTitle = title || getTitleFromUrl(displayUrl);
-      addLocalHistory({
-        url: displayUrl,
-        title: displayTitle,
-        type: sourceType,
-        thumbnail: thumbnail || null,
-        time: Date.now()
-      });
-    }
-  });
 
   socket.on("queue-play-item", ({ url }) => {
-    // If I'm host, auto-load the URL
-    if (canIControl()) {
+    const ctrl = window._wpCanIControl ? window._wpCanIControl() : false;
+    if (ctrl) {
       const srcInput = document.getElementById("source-url");
       if (srcInput) srcInput.value = url;
       const loadBtn = document.getElementById("extract-btn");
-      if (loadBtn) loadBtn.click(); // auto trigger extraction
+      if (loadBtn) loadBtn.click();
       else if (document.getElementById("source-form")) document.getElementById("source-form").dispatchEvent(new Event("submit"));
     }
   });
@@ -3010,19 +3065,15 @@ document.querySelectorAll(".reaction-btn").forEach(btn => {
 const mp4ElRef = document.getElementById("mp4-player");
 if (mp4ElRef) {
   mp4ElRef.addEventListener("ended", () => {
-    if (canIControl() && typeof socket !== "undefined") {
-      socket.emit("queue-next");
+    const ctrl = window._wpCanIControl ? window._wpCanIControl() : false;
+    const s = window._wpSocket;
+    if (ctrl && s) {
+      s.emit("queue-next");
     }
   });
 }
 
-// Expose a function to see if user is host/admin (since myRole is scoped)
-function canIControl() {
-  if (typeof isSuperAdmin !== "undefined" && isSuperAdmin) return true;
-  // Fallback to checking the UI state of the source bar, which is hidden for viewers
-  const viewerBar = document.getElementById("viewer-bar");
-  return viewerBar && viewerBar.hidden;
-}
+// canIControl is now exposed via window._wpCanIControl from initRoom()
 
 // Translations hook
 if (window.WP_TRANSLATIONS) {

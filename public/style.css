@@ -158,9 +158,11 @@ input[type="text"]::placeholder, input[type="url"]::placeholder, input[type="pas
 .lobby {
   min-height: 100dvh;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 20px;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 40px 20px 20px;
 }
 .lobby-card {
   width: 100%;
@@ -249,8 +251,136 @@ input[type="text"]::placeholder, input[type="url"]::placeholder, input[type="pas
 .admin-body {
   flex: 1;
   padding: 20px;
+}
+
+/* ===== Public Rooms Section ===== */
+.public-rooms-container {
+  margin-top: 0;
+  width: 100%;
+  max-width: 460px;
+  min-width: 280px;
+  background: var(--bg-elev-solid);
+  border: var(--glass-border);
+  backdrop-filter: blur(var(--glass-blur));
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  animation: fadeSlideUp 0.4s var(--transition-slow) both;
+  align-self: flex-start;
+}
+.public-rooms-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-top: 0;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-align: center;
+}
+.public-rooms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 280px;
   overflow-y: auto;
 }
+.public-room-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  transition: all var(--transition-fast);
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+}
+.public-room-card:hover {
+  background: rgba(0, 240, 255, 0.06);
+  border-color: rgba(0, 240, 255, 0.25);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0, 240, 255, 0.08);
+}
+.public-room-thumb {
+  width: 64px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+.public-room-thumb-placeholder {
+  width: 64px;
+  height: 40px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.15), rgba(168, 85, 247, 0.1));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.public-room-info {
+  flex: 1;
+  min-width: 0;
+}
+.public-room-name {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 2px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+.public-room-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.public-room-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+.public-users-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.lobby-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 16px;
+  cursor: pointer;
+}
+.lobby-checkbox-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+  margin: 0;
+}
+.lobby-checkbox-row .checkbox-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  user-select: none;
+  cursor: pointer;
+}
+
 .admin-room-list {
   display: flex;
   flex-direction: column;
@@ -368,6 +498,8 @@ input[type="text"]::placeholder, input[type="url"]::placeholder, input[type="pas
   text-shadow: 0 0 8px rgba(0, 240, 255, 0.25);
 }
 .app-footer:hover { opacity: 0.9; }
+/* Hide footer when inside a room to prevent overlap with source bar */
+.room:not([hidden]) ~ .app-footer { display: none; }
 
 .lobby-admin-link {
   margin-top: 12px;
@@ -418,7 +550,14 @@ input[type="text"]::placeholder, input[type="url"]::placeholder, input[type="pas
   font-size: 14px;
   color: var(--primary);
 }
-.room-actions { display: flex; align-items: center; gap: 6px; }
+.room-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 70%;
+}
 
 .conn-status {
   display: flex;
@@ -599,9 +738,18 @@ input[type="text"]::placeholder, input[type="url"]::placeholder, input[type="pas
   gap: 8px;
   flex-shrink: 0;
 }
-.source-form { display: flex; gap: 8px; }
-.source-form input { flex: 1; }
-.share-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.source-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.source-form input,
+#source-url {
+  flex: 1 1 200px;
+  min-width: 200px;
+}
+.share-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .share-hint {
   margin: 8px 0 0;
   padding: 8px 12px;
@@ -1095,26 +1243,190 @@ input[type="text"]::placeholder, input[type="url"]::placeholder, input[type="pas
 .toast-error .toast-icon { color: var(--danger); }
 .toast-error .toast-progress { background: var(--danger); }
 
+/* ============================================================
+   RESPONSIVE — Mobile-first, comprehensive fix
+   ============================================================ */
+
+/* --- Global overflow guard --- */
+html, body { overflow-x: hidden; max-width: 100vw; }
+
+/* === Input zoom prevention (iOS) — applied globally === */
+@media (max-width: 720px) and (hover: none) {
+  input[type="text"],
+  input[type="url"],
+  input[type="password"],
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* ── Tablet: 721px – 1024px ── */
+@media (min-width: 721px) and (max-width: 1024px) {
+  :root { --chat-w: 280px; }
+  .room-actions .btn { padding: 6px 8px; font-size: 12px; }
+  /* Hide text labels on narrow tablet, keep icons */
+  #copy-link-btn .btn-label,
+  #speaker-btn .btn-label,
+  #mic-btn .btn-label { display: none; }
+  .source-form input,
+  #source-url {
+    flex: 1 1 180px;
+    min-width: 180px;
+  }
+  .source-form .btn { font-size: 12px; padding: 8px 10px; }
+  .share-row .btn  { font-size: 12px; padding: 8px 10px; }
+  .history-dropdown { width: 320px; }
+}
+
+/* ── Large tablet / show chat toggle toggle ── */
+@media (min-width: 721px) {
+  .chat-toggle { display: none; }
+  #close-chat-btn { display: none; }
+}
+
+/* ── Mobile: ≤ 720px ── */
 @media (max-width: 720px) {
-  :root { --chat-w: 100%; }
+  :root {
+    --chat-w: 100%;
+    --header-h: auto;
+  }
+
+  /* === Lobby === */
+  .lobby {
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 12px;
+    gap: 16px;
+  }
+  .lobby-card {
+    max-width: 100%;
+    padding: 20px 16px;
+  }
+  .public-rooms-container {
+    max-width: 100%;
+    padding: 16px 14px;
+    margin-top: 0;
+  }
+
+  /* === Room header === */
+  .room-header {
+    padding: 8px 10px;
+    height: auto;
+    min-height: 48px;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .room-id-block { min-width: 0; flex-shrink: 1; overflow: hidden; }
+  .room-id { font-size: 12px; }
+  .room-label { display: none; }
+  .room-actions {
+    max-width: 100%;
+    gap: 3px;
+    flex-wrap: wrap;
+  }
+  /* Shrink all header buttons */
+  .room-actions .btn {
+    padding: 5px 7px;
+    font-size: 11px;
+    min-height: 30px;
+  }
+  /* Keep essential buttons readable, compress verbose ones */
+  #back-lobby-btn { font-size: 11px; padding: 5px 8px; }
+  #toggle-chat-btn { font-size: 11px; padding: 5px 8px; }
+  #lang-toggle-btn { font-size: 11px; padding: 5px 6px; }
+  /* Compress but keep icon+short text for these */
+  #copy-link-btn { font-size: 11px; }
+  #speaker-btn { font-size: 11px; }
+  #mic-btn { font-size: 11px; }
+  #room-pw-btn { font-size: 11px; }
+
+  /* === Room body / stage === */
   .room-body { flex-direction: column; }
   .stage { flex: 1; min-height: 0; }
+
+  /* === Source bar === */
+  .source-bar {
+    padding: 8px 10px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    gap: 6px;
+  }
+  .source-form {
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .source-form input,
+  #source-url {
+    min-width: 100%;
+    flex: 0 0 100%;
+    width: 100%;
+    font-size: 14px; /* prevent iOS zoom */
+  }
+  /* Collapse source-form buttons to compact row */
+  .source-form .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 11px;
+    padding: 7px 6px;
+    min-height: 34px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+  }
+
+  .share-row {
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .share-row .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 11px;
+    padding: 7px 6px;
+    min-height: 34px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+  }
+
+  .share-hint { font-size: 11px; line-height: 1.4; }
+
+  /* === Chat panel — bottom sheet === */
   .chat-panel {
     position: fixed;
-    left: 0; right: 0; bottom: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     height: 65dvh;
     width: 100%;
     border-left: none;
     border-top: 1px solid var(--border);
-    border-top-left-radius: 16px;
-    border-top-right-radius: 16px;
+    border-top-left-radius: 18px;
+    border-top-right-radius: 18px;
     transform: translateY(100%);
-    transition: transform 0.3s var(--transition-slow);
+    transition: transform 0.35s var(--transition-slow);
     z-index: 30;
-    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(0, 240, 255, 0.05);
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(0, 240, 255, 0.05);
+    /* Drag handle */
+  }
+  /* Drag handle indicator */
+  .chat-panel::before {
+    content: "";
+    display: block;
+    width: 40px;
+    height: 4px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 2px;
+    margin: 10px auto 0;
+    flex-shrink: 0;
   }
   .chat-open .chat-panel { transform: translateY(0); }
-  .source-bar { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+  /* Add padding for iOS home indicator */
+  .chat-form {
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  /* === Toast === */
   .toast-container {
     top: auto;
     bottom: 16px;
@@ -1122,11 +1434,54 @@ input[type="text"]::placeholder, input[type="url"]::placeholder, input[type="pas
     left: 8px;
     max-width: 100%;
   }
+
+  /* === Modals === */
+  .modal-overlay { padding: 12px; align-items: flex-end; }
+  .modal-card {
+    max-width: 100%;
+    border-radius: 18px 18px 12px 12px;
+    padding: 20px 16px;
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+  .paste-source-card { width: 100%; max-width: 100%; }
+  .paste-source-card textarea { min-height: 160px; font-size: 13px; }
+  .modal-actions { flex-direction: column-reverse; }
+  .modal-actions .btn { width: 100%; justify-content: center; }
+
+  /* === Admin card === */
+  .admin-room-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .admin-room-actions { width: 100%; flex-wrap: wrap; }
+
+  /* === History dropdown === */
+  .history-dropdown {
+    width: calc(100vw - 24px);
+    right: -4px;
+    left: auto;
+  }
+
+  /* === Scanner tabs === */
+  .scanner-tabs { flex-wrap: wrap; }
+  .scanner-url-row { flex-direction: column; }
+  .scanner-url-row input { min-width: 100%; }
+  .scanner-url-row .btn { width: 100%; justify-content: center; }
+
+  /* === IP lock banner === */
+  .ip-lock-banner { flex-direction: column; gap: 8px; }
+  .ip-lock-actions { flex-direction: row; flex-wrap: wrap; }
+
+  /* === Role badge — hide on very small screens (handled below) === */
 }
 
-@media (min-width: 721px) {
-  .chat-toggle { display: none; }
-  #close-chat-btn { display: none; }
+/* ── Very small phones: ≤ 380px ── */
+@media (max-width: 380px) {
+  .room-actions { gap: 2px; }
+  .room-actions .btn { padding: 4px 5px; min-height: 28px; }
+  #my-role-badge { display: none; }
+  .panel-tab { padding: 5px 7px; font-size: 12px; }
 }
 
 .btn-ghost.active {
@@ -1444,6 +1799,7 @@ input[type="text"]::placeholder, input[type="url"]::placeholder, input[type="pas
 }
 .switch input:checked + .slider::before { transform: translateX(22px); }
 
+/* btn-ghost is already defined above at line ~120. Merged styles here: */
 .btn-ghost {
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.12);

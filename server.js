@@ -884,11 +884,31 @@ app.post(`${BASE_PATH}api/rooms`, (req, res) => {
     typeof req.body?.password === "string" && req.body.password.trim()
       ? req.body.password.trim()
       : null;
+  const isPublic = !!req.body?.isPublic;
   const token = crypto.randomBytes(8).toString("hex");
   const room = getOrCreateRoom(id);
   room.password = password;
+  room.isPublic = isPublic;
   room.creatorToken = token;
   res.status(201).json({ id, token });
+});
+
+app.get(`${BASE_PATH}api/public-rooms`, (req, res) => {
+  const list = [];
+  for (const [id, room] of rooms) {
+    if (room.isPublic && room.participants.size > 0) {
+      list.push({
+        id,
+        participantCount: room.participants.size,
+        title: room.title || (room.sourceType === "youtube" ? "YouTube Video" : (() => {
+          try { return room.sourcePage ? new URL(room.sourcePage).hostname : "Watch Party"; } catch { return "Watch Party"; }
+        })()),
+        sourceType: room.sourceType || null,
+        thumbnail: room.thumbnail || null
+      });
+    }
+  }
+  res.json({ rooms: list });
 });
 
 const ROOM_IDLE_TTL_MS = Number(process.env.ROOM_IDLE_TTL_MS) || 5 * 60 * 1000;
@@ -944,6 +964,7 @@ function getOrCreateRoom(id) {
       suggestions: [],
       history: [],
       requireApproval: false,
+      isPublic: false,
       pending: new Map(),
       approvedClientIds: new Set(),
     };
@@ -1139,6 +1160,7 @@ function finalizeJoinOther(targetSocket, roomId, room, hostKey) {
     voipPeers: [...room.voipParticipants],
     votes: serializeVotes(room.votes),
     requireApproval: !!room.requireApproval,
+    isPublic: !!room.isPublic,
     pending: (myRole === "host" || myRole === "admin" || targetSocket.isSuperAdmin)
       ? serializePending(room) : [],
     myRole,
@@ -1500,7 +1522,7 @@ io.on("connection", (socket) => {
     // Add to history
     const historyEntry = {
       id: crypto.randomBytes(4).toString("hex"),
-      url: source,
+      url: sourcePage || source,
       sourceType,
       sourcePage: ctx.room.sourcePage,
       title: ctx.room.title,
@@ -1957,6 +1979,18 @@ io.on("connection", (socket) => {
       }
       broadcastPendingUpdate(ctx.rid);
     }
+  });
+
+  socket.on("set-room-public", ({ enabled }) => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    const isHost = socket.id === ctx.room.roomHostId;
+    const isAdmin = ctx.room.admins.has(socket.id);
+    if (!isHost && !isAdmin && !socket.isSuperAdmin) return;
+    ctx.room.isPublic = !!enabled;
+    io.to(ctx.rid).emit("public-mode-updated", {
+      isPublic: ctx.room.isPublic,
+    });
   });
 
   socket.on("approve-join", ({ targetId }) => {

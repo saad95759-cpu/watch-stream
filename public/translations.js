@@ -31,6 +31,7 @@ const translations = {
     "tab-users": "Users",
     "tab-queue": "Queue",
     "tab-votes": "Votes",
+    "tab-pending": "Pending",
     "chat-placeholder": "Send a message",
     "chat-send": "Send",
     
@@ -54,7 +55,14 @@ const translations = {
     "admin-rooms": "Active Rooms",
     "admin-history": "Global History",
     
-    "history-recent": "Recently Played"
+    "history-recent": "Recently Played",
+    
+    // Public Rooms
+    "lobby-public-label": "Make this room public (visible to everyone)",
+    "lobby-public-rooms-title": "Active Public Watch Parties",
+    "lobby-no-public-rooms": "No active public rooms right now. Create one to get started!",
+    "settings-public-label": "List room publicly",
+    "settings-public-hint": "When enabled, anyone can find and join this watch party from the homepage."
   },
   ar: {
     // Lobby
@@ -88,6 +96,7 @@ const translations = {
     "tab-users": "المستخدمين",
     "tab-queue": "قائمة الانتظار",
     "tab-votes": "التصويتات",
+    "tab-pending": "قيد الانتظار",
     "chat-placeholder": "اكتب رسالة...",
     "chat-send": "إرسال",
     
@@ -111,7 +120,14 @@ const translations = {
     "admin-rooms": "الغرف النشطة",
     "admin-history": "السجل العام",
 
-    "history-recent": "تم تشغيله مؤخراً"
+    "history-recent": "تم تشغيله مؤخراً",
+
+    // Public Rooms
+    "lobby-public-label": "اجعل هذه الغرفة عامة (مرئية للجميع)",
+    "lobby-public-rooms-title": "غرف المشاهدة العامة النشطة",
+    "lobby-no-public-rooms": "لا توجد غرف عامة نشطة حالياً. أنشئ غرفة للبدء!",
+    "settings-public-label": "إدراج الغرفة علناً",
+    "settings-public-hint": "عند التمكين، يمكن لأي شخص العثور على غرفة المشاهدة هذه والانضمام إليها من الصفحة الرئيسية."
   }
 };
 
