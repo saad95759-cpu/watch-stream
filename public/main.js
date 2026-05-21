@@ -1128,7 +1128,14 @@ function initRoom(roomId) {
   });
 
   document.getElementById("back-lobby-btn").addEventListener("click", () => {
-    window.location.href = BASE;
+    if (myRole === "host") {
+      if (confirm("You are the Host. Do you want to end this room for everyone?\n(To leave without ending the room, transfer Host to someone else first).")) {
+        socket.emit("end-room");
+        window.location.href = BASE;
+      }
+    } else {
+      window.location.href = BASE;
+    }
   });
 
   const pwBtn = document.getElementById("room-pw-btn");
@@ -1454,6 +1461,11 @@ function initRoom(roomId) {
 
   socket.on("chat-blocked", () => {
     flashStatus("You are muted and cannot send messages.", "error");
+  });
+
+  socket.on("room-ended", () => {
+    alert("The Host has ended this room.");
+    window.location.href = BASE;
   });
 
   socket.on("system-message", ({ text }) => {

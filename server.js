@@ -1438,10 +1438,19 @@ io.on("connection", (socket) => {
         socket.to(roomId).emit("webrtc-host-stopped");
       }
       if (room.roomHostId === socket.id) {
-        room.roomHostId = null;
-        io.to(roomId).emit("system-message", {
-          text: "Host has left the room",
-        });
+        if (room.participants.size > 0) {
+          const nextHostId = Array.from(room.participants.keys())[0];
+          room.roomHostId = nextHostId;
+          const nextHostName = room.participants.get(nextHostId);
+          io.to(roomId).emit("system-message", {
+            text: `Host disconnected. ${nextHostName} is the new host.`,
+          });
+        } else {
+          room.roomHostId = null;
+          io.to(roomId).emit("system-message", {
+            text: "Host has left the room",
+          });
+        }
       }
       socket.leave(roomId);
       if (room.participants.size === 0) room.emptySince = Date.now();
@@ -1705,6 +1714,26 @@ io.on("connection", (socket) => {
   });
 
   socket.on("leave-room", () => leaveCurrentRoom());
+
+  socket.on("end-room", () => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    if (socket.id !== ctx.room.roomHostId && !socket.isSuperAdmin) return;
+    
+    io.to(ctx.rid).emit("room-ended");
+    io.to(ctx.rid).emit("clear-room-logs");
+    
+    endVideoSession(ctx.rid);
+    
+    io.sockets.sockets.forEach((s) => {
+      if (s.currentRoomId === ctx.rid) {
+        s.leave(ctx.rid);
+        s.currentRoomId = null;
+      }
+    });
+    
+    rooms.delete(ctx.rid);
+  });
 
   socket.on("set-source", ({ source, sourceType, sourcePage, title, thumbnail }) => {
     const ctx = requireMember();
