@@ -55,6 +55,19 @@ function App() {
       <Room onLeave={() => {}} />
 
       {/* Modals required by legacy systems */}
+      <div id="admin-logs-modal" className="modal-overlay" hidden>
+        <div className="modal-card" style={{maxWidth: '600px'}}>
+          <h3>Room Logs: <span id="admin-logs-room-id"></span></h3>
+          <div id="admin-logs-content" style={{maxHeight: '400px', overflowY: 'auto', margin: '16px 0', textAlign: 'left', fontSize: '13px', fontFamily: 'monospace', background: 'var(--bg-body)', padding: '8px', borderRadius: '8px'}}>
+            <p className="hint">Loading logs...</p>
+          </div>
+          <div className="modal-actions">
+            <button id="admin-logs-download-btn" type="button" className="btn" style={{marginRight: 'auto'}}>Download Report</button>
+            <button id="admin-logs-close-btn" type="button" className="btn btn-primary">Close</button>
+          </div>
+        </div>
+      </div>
+
       <div id="password-modal" className="modal-overlay" hidden>
         <div className="modal-card">
           <h3>Room Password Required</h3>

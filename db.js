@@ -21,8 +21,12 @@ const logSchema = new mongoose.Schema({
   name: String,
   url: String,
   playedByName: String,
-  ts: { type: Number, default: () => Date.now() }
+  ts: { type: Number, default: () => Date.now() },
+  createdAt: { type: Date, default: Date.now }
 }, { strict: false });
+
+logSchema.index({ roomId: 1, ts: -1 });
+logSchema.index({ createdAt: 1 }, { expireAfterSeconds: 172800 });
 
 export const RoomLog = mongoose.model("RoomLog", logSchema);
 

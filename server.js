@@ -906,6 +906,21 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
   }
 });
 
+app.get(`${BASE_PATH}api/admin/export-logs`, async (req, res) => {
+  const { roomId, token } = req.query;
+  if (!token || !adminTokens.has(token)) {
+    return res.status(403).json({ error: "Unauthorized" });
+  }
+  try {
+    const logs = await RoomLog.find({ roomId }).sort({ ts: 1 }).lean();
+    res.setHeader("Content-Disposition", `attachment; filename="room-${roomId}-logs.json"`);
+    res.setHeader("Content-Type", "application/json");
+    res.send(JSON.stringify(logs, null, 2));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post(`${BASE_PATH}api/rooms`, (req, res) => {
   const id = crypto.randomBytes(4).toString("hex");
   const password =

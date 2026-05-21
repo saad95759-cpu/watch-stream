@@ -697,6 +697,17 @@ document.getElementById("admin-logs-close-btn")?.addEventListener("click", () =>
   document.getElementById("admin-logs-modal").hidden = true;
 });
 
+document.getElementById("admin-logs-download-btn")?.addEventListener("click", () => {
+  const roomId = document.getElementById("admin-logs-room-id").textContent;
+  const token = sessGet("wp-admin-token");
+  if (!token) {
+    alert("Admin token not found!");
+    return;
+  }
+  const url = `${BASE}api/admin/export-logs?roomId=${roomId}&token=${token}`;
+  window.open(url, '_blank');
+});
+
 socket.on("admin-room-logs-result", ({ roomId, logs }) => {
   const content = document.getElementById("admin-logs-content");
   if (!logs || logs.length === 0) {
