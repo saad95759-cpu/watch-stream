@@ -2469,7 +2469,6 @@ io.on("connection", (socket) => {
     }
     leaveCurrentRoom();
   });
-  });
 });
 
 async function run48HourPurge() {
