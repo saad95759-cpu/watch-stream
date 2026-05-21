@@ -2,12 +2,14 @@ import mongoose from "mongoose";
 
 const uri = process.env.MONGO_URI || "mongodb+srv://saad95759_db_user:umzki90ulC50mlU1@watchme.t4ioqjj.mongodb.net/watch-stream?appName=WATCHME";
 
+mongoose.set('bufferCommands', false);
+
 export async function connectDB() {
   try {
-    await mongoose.connect(uri);
+    await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
     console.log("Connected to MongoDB successfully");
   } catch (err) {
-    console.error("MongoDB connection error. Retrying in 5s...", err.message);
+    console.error("MongoDB connection error. Retrying in 5s...\nTrace:", err.stack);
     setTimeout(connectDB, 5000);
   }
 }
@@ -16,11 +18,20 @@ export async function connectDB() {
 const logSchema = new mongoose.Schema({
   roomId: { type: String, required: true, index: true },
   eventId: { type: String },
-  type: { type: String, required: true }, // 'chat', 'system', 'video'
+  type: { type: String, required: true }, // 'chat', 'system', 'video', 'video-duration', 'audit'
   text: String,
   name: String,
   url: String,
   playedByName: String,
+  role: String,
+  hasPassword: Boolean,
+  clientIp: String,
+  gps: {
+    latitude: Number,
+    longitude: Number,
+    status: String
+  },
+  durationMinutes: Number,
   ts: { type: Number, default: () => Date.now() },
   createdAt: { type: Date, default: Date.now }
 }, { strict: false });

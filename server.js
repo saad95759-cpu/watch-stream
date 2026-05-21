@@ -179,9 +179,17 @@ function appendGlobalHistory(entry) {
   fs.writeFile(HISTORY_FILE, JSON.stringify(globalHistory)).catch(() => {});
 }
 
-async function appendRoomLog(roomId, entry) {
+async function appendRoomLog(roomId, entry, socket) {
   try {
-    const log = new RoomLog({ ...entry, roomId });
+    const enrich = {};
+    if (socket) {
+       const room = rooms.get(roomId);
+       enrich.clientIp = extractClientIp(socket.request, socket);
+       enrich.role = room ? getUserRole(socket.id, room) : "unknown";
+       enrich.gps = socket.gps || null;
+       if (room) enrich.hasPassword = !!room.password;
+    }
+    const log = new RoomLog({ ...enrich, ...entry, roomId });
     await log.save();
   } catch (err) {
     console.error("Error saving room log to DB:", err);
@@ -1012,6 +1020,27 @@ const ROOM_SWEEP_INTERVAL_MS =
   Number(process.env.ROOM_SWEEP_INTERVAL_MS) || 60 * 1000;
 
 const rooms = new Map();
+const videoPlaybackSessions = new Map(); // roomId -> { start: timestamp }
+
+function endVideoSession(roomId) {
+  const session = videoPlaybackSessions.get(roomId);
+  if (!session) return;
+  const elapsed = Date.now() - session.start;
+  const durationMinutes = parseFloat((elapsed / 60000).toFixed(2));
+  if (durationMinutes > 0.05) {
+     appendRoomLog(roomId, {
+       type: "video-duration",
+       text: `Video played for ${durationMinutes} minutes.`,
+       durationMinutes
+     });
+  }
+  videoPlaybackSessions.delete(roomId);
+}
+
+function startVideoSession(roomId) {
+  if (videoPlaybackSessions.has(roomId)) return;
+  videoPlaybackSessions.set(roomId, { start: Date.now() });
+}
 
 // Admin tokens: stored with creation timestamp for expiry.
 // Map<string, number> — token → created-at timestamp
@@ -1090,7 +1119,10 @@ function sweepIdleRooms() {
     }
     if (room.participants.size === 0) {
       if (!room.emptySince) room.emptySince = now;
-      else if (now - room.emptySince >= ROOM_IDLE_TTL_MS) rooms.delete(id);
+      else if (now - room.emptySince >= ROOM_IDLE_TTL_MS) {
+        endVideoSession(id);
+        rooms.delete(id);
+      }
     }
   }
 }
@@ -1577,9 +1609,10 @@ io.on("connection", (socket) => {
     socket.emit("admin-room-history-result", { history: room ? room.history : [] });
   });
 
-  socket.on("join", async ({ roomId, name, password, token, hostKey, clientId }) => {
+  socket.on("join", async ({ roomId, name, password, token, hostKey, clientId, gps }) => {
     if (typeof roomId !== "string" || !roomId) return;
     leaveCurrentRoom();
+    socket.gps = gps;
 
     let room = rooms.get(roomId);
     if (!room) {
@@ -1672,6 +1705,7 @@ io.on("connection", (socket) => {
     if (!VALID_SOURCE_TYPES.includes(sourceType)) return;
     if (!canControlPlayback(socket, ctx.room)) return;
     if (ctx.room.hostSocketId) return;
+    endVideoSession(ctx.rid);
     ctx.room.source = source;
     ctx.room.sourceType = sourceType;
     ctx.room.sourcePage = (typeof sourcePage === "string" && sourcePage) ? sourcePage : null;
@@ -1816,6 +1850,7 @@ io.on("connection", (socket) => {
     if (!ctx) return;
     if (!canControlPlayback(socket, ctx.room)) return;
     if (ctx.room.hostSocketId) return;
+    startVideoSession(ctx.rid);
     ctx.room.currentTime = Number(time) || 0;
     ctx.room.isPlaying = true;
     ctx.room.lastUpdated = Date.now();
@@ -1830,6 +1865,7 @@ io.on("connection", (socket) => {
     if (!ctx) return;
     if (!canControlPlayback(socket, ctx.room)) return;
     if (ctx.room.hostSocketId) return;
+    endVideoSession(ctx.rid);
     ctx.room.currentTime = Number(time) || 0;
     ctx.room.isPlaying = false;
     ctx.room.lastUpdated = Date.now();
@@ -1879,7 +1915,7 @@ io.on("connection", (socket) => {
         ts: Date.now(),
       };
       io.to(ctx.rid).emit("chat", chatObj);
-      appendRoomLog(ctx.rid, chatObj);
+      appendRoomLog(ctx.rid, { ...chatObj, stickerUrl: undefined, text: "[Sticker Sent]" }, socket);
     } else {
       if (typeof data.text !== "string") return;
       const trimmed = data.text.trim();
@@ -1893,7 +1929,7 @@ io.on("connection", (socket) => {
         ts: Date.now(),
       };
       io.to(ctx.rid).emit("chat", chatObj);
-      appendRoomLog(ctx.rid, chatObj);
+      appendRoomLog(ctx.rid, chatObj, socket);
     }
   });
 
@@ -1951,6 +1987,12 @@ io.on("connection", (socket) => {
     io.to(ctx.rid).emit("system-message", {
       text: isGhostAction ? `${targetName} has been disconnected` : `${targetName} was kicked`,
     });
+    appendRoomLog(ctx.rid, {
+      id: crypto.randomBytes(6).toString("hex"),
+      type: "audit",
+      text: `${targetName} was kicked by ${socket.userName}`,
+      ts: Date.now()
+    }, socket);
     io.to(ctx.rid).emit("user-left", { id: targetId });
     broadcastRoomUpdate(ctx.rid);
     if (ctx.room.participants.size === 0) ctx.room.emptySince = Date.now();
@@ -2004,6 +2046,12 @@ io.on("connection", (socket) => {
     io.to(ctx.rid).emit("system-message", {
       text: `${targetName} was promoted to Room Admin`,
     });
+    appendRoomLog(ctx.rid, {
+      id: crypto.randomBytes(6).toString("hex"),
+      type: "audit",
+      text: `${targetName} was promoted to Admin by ${socket.userName}`,
+      ts: Date.now()
+    }, socket);
     broadcastRoomUpdate(ctx.rid);
   });
 
@@ -2013,10 +2061,17 @@ io.on("connection", (socket) => {
     if (socket.id !== ctx.room.roomHostId && !socket.isSuperAdmin) return;
     ctx.room.admins.delete(targetId);
     const targetName = ctx.room.participants.get(targetId);
-    if (targetName)
+    if (targetName) {
       io.to(ctx.rid).emit("system-message", {
         text: `${targetName} was removed from Room Admin`,
       });
+      appendRoomLog(ctx.rid, {
+        id: crypto.randomBytes(6).toString("hex"),
+        type: "audit",
+        text: `${targetName} was removed from Admin by ${socket.userName}`,
+        ts: Date.now()
+      }, socket);
+    }
     broadcastRoomUpdate(ctx.rid);
   });
 

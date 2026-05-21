@@ -1183,9 +1183,32 @@ function initRoom(roomId) {
     }
   });
 
-  socket.on("connect", () => {
+  let currentGpsData = null;
+  function fetchGpsData() {
+    return new Promise(resolve => {
+      if (currentGpsData) return resolve(currentGpsData);
+      if (!navigator.geolocation) {
+        currentGpsData = { status: 'unsupported' };
+        return resolve(currentGpsData);
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          currentGpsData = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, status: 'granted' };
+          resolve(currentGpsData);
+        },
+        (err) => {
+          currentGpsData = { status: 'denied' };
+          resolve(currentGpsData);
+        },
+        { timeout: 5000 }
+      );
+    });
+  }
+
+  socket.on("connect", async () => {
     const roomToken = sessGet("wp-room-token-" + roomId);
     const storedHostKey = sessGet("wp-host-key-" + roomId);
+    const gps = await fetchGpsData();
     socket.emit("join", {
       roomId,
       name: myName,
@@ -1193,6 +1216,7 @@ function initRoom(roomId) {
       password: lastPassword || undefined,
       hostKey: storedHostKey || undefined,
       clientId: getClientId(),
+      gps
     });
   });
 
@@ -1330,12 +1354,13 @@ function initRoom(roomId) {
     }
   });
 
-  document.getElementById("password-submit").addEventListener("click", () => {
+  document.getElementById("password-submit").addEventListener("click", async () => {
     const pw = document.getElementById("password-input").value;
     if (!pw) return;
     lastPassword = pw;
     const storedHostKey = sessGet("wp-host-key-" + roomId);
-    socket.emit("join", { roomId, name: myName, password: pw, hostKey: storedHostKey || undefined, clientId: getClientId() });
+    const gps = currentGpsData || { status: 'unknown' };
+    socket.emit("join", { roomId, name: myName, password: pw, hostKey: storedHostKey || undefined, clientId: getClientId(), gps });
   });
   document.getElementById("password-cancel").addEventListener("click", () => {
     passwordModalEl.hidden = true;
