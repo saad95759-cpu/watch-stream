@@ -179,6 +179,7 @@ function dismissToast(toast) {
 let isSuperAdmin = false;
 let publicRoomsInterval = null;
 const myName = safeGet("wp-name") || "Guest";
+let roomHistoryList = []; // Global: shared between initRoom() and getLocalHistory()
 
 const socket = io({ path: `${BASE}socket.io` });
 
@@ -802,7 +803,7 @@ function initRoom(roomId) {
   let voteList = [];
   let queueList = [];
   let suggestionsList = [];
-  let roomHistoryList = [];
+  // roomHistoryList is global — defined at top of file
   let pendingList = [];
   let requireApproval = false;
   let roomIsPublic = false;
@@ -1240,17 +1241,22 @@ function initRoom(roomId) {
         currentGpsData = { status: 'unsupported' };
         return resolve(currentGpsData);
       }
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          currentGpsData = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, status: 'granted' };
-          resolve(currentGpsData);
-        },
-        (err) => {
-          currentGpsData = { status: 'denied' };
-          resolve(currentGpsData);
-        },
-        { timeout: 5000 }
-      );
+      try {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            currentGpsData = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, status: 'granted' };
+            resolve(currentGpsData);
+          },
+          (err) => {
+            currentGpsData = { status: 'denied' };
+            resolve(currentGpsData);
+          },
+          { timeout: 5000 }
+        );
+      } catch (e) {
+        currentGpsData = { status: 'error' };
+        resolve(currentGpsData);
+      }
     });
   }
 
@@ -3213,9 +3219,10 @@ function parseYouTube(url) {
   return null;
 }
 
-// ===== History (Local Storage) =====
+// ===== History =====
 function getLocalHistory() {
-  return roomHistoryList || [];
+  // roomHistoryList is declared globally — safe to access from any scope
+  return Array.isArray(roomHistoryList) ? roomHistoryList : [];
 }
 function getYoutubeId(url) {
   if (!url) return null;
@@ -3447,15 +3454,19 @@ if (typeof socket !== "undefined") {
 
   // Floating Reactions
   socket.on("reaction", ({ emoji, from }) => {
-    console.log("[CLIENT] reaction received", emoji, "from", from);
-    const canvas = document.getElementById("reaction-canvas");
-    if (!canvas) return;
-    const el = document.createElement("div");
-    el.className = "floating-reaction";
-    el.innerHTML = emoji;
-    el.style.left = Math.random() * 80 + 10 + "%";
-    canvas.appendChild(el);
-    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 5000);
+    try {
+      console.log("[CLIENT] reaction received", emoji, "from", from);
+      const canvas = document.getElementById("reaction-canvas");
+      if (!canvas) return;
+      const el = document.createElement("div");
+      el.className = "floating-reaction";
+      el.innerHTML = emoji;
+      el.style.left = Math.random() * 80 + 10 + "%";
+      canvas.appendChild(el);
+      setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 5000);
+    } catch (e) {
+      console.warn("[reaction render error]", e);
+    }
   });
 }
 
