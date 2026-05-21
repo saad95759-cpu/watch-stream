@@ -3439,7 +3439,7 @@ if (typeof socket !== "undefined") {
   });
 
   // Floating Reactions
-  socket.on("reaction", ({ emoji, from }) => {
+  socket.on("broadcast-reaction", ({ emoji, from }) => {
     const canvas = document.getElementById("reaction-canvas");
     if (!canvas) return;
     const el = document.createElement("div");
@@ -3456,7 +3456,7 @@ document.querySelectorAll(".reaction-btn").forEach(btn => {
   const triggerReaction = (e) => {
     if (e) e.preventDefault();
     if (typeof socket !== "undefined") {
-      socket.emit("reaction", { emoji: btn.dataset.emoji });
+      socket.emit("send-reaction", { emoji: btn.dataset.emoji });
     }
   };
   btn.addEventListener("click", triggerReaction);

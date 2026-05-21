@@ -1817,6 +1817,8 @@ io.on("connection", (socket) => {
       io.to(ctx.rid).emit("chat", sysMsg);
       appendRoomLog(ctx.rid, sysMsg);
     }
+    
+    broadcastRoomUpdate(ctx.rid);
 
     io.to(ctx.rid).emit("source-changed", {
       source,
@@ -1828,11 +1830,10 @@ io.on("connection", (socket) => {
   });
 
   // Reaction events
-  socket.on("reaction", ({ emoji }) => {
-    const ctx = requireMember();
-    if (!ctx) return;
-    // Basic rate limit check could go here
-    io.to(ctx.rid).emit("reaction", { emoji, from: socket.userName });
+  socket.on("send-reaction", ({ emoji }) => {
+    const rid = socket.currentRoomId;
+    if (!rid) return;
+    io.to(rid).emit("broadcast-reaction", { emoji, from: socket.userName });
   });
 
   // Queue events
