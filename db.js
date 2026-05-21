@@ -9,9 +9,8 @@ export async function connectDB() {
     await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
     console.log("Connected to MongoDB successfully");
   } catch (err) {
-    console.error("MongoDB connection error. Retrying in 5s...\nTrace:", err.stack);
-    await new Promise(res => setTimeout(res, 5000));
-    return connectDB();
+    console.error("FATAL DB ERROR:", err);
+    process.exit(1);
   }
 }
 

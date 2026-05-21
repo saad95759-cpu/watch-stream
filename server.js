@@ -11,6 +11,7 @@ import { Readable } from "node:stream";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import nodemailer from "nodemailer";
+import mongoose from "mongoose";
 import { connectDB, RoomLog, IpBan } from "./db.js";
 
 await connectDB();
@@ -416,6 +417,7 @@ function sendIndex(_req, res) {
 }
 app.get(BASE_PATH, sendIndex);
 app.get(`${BASE_PATH}r/:roomId`, sendIndex);
+app.get(`${BASE_PATH}api/health`, (_req, res) => res.json({ status: "ok", db: mongoose.connection.readyState }));
 app.get(`${BASE_PATH}healthz`, (_req, res) => res.json({ status: "ok" }));
 
 // --- التعديل هنا: تحويل الرابط الرئيسي ليفتح التطبيق فوراً ---
