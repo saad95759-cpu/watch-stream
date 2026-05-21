@@ -976,11 +976,14 @@ app.get(`${BASE_PATH}api/admin/email-report-instant`, async (req, res) => {
       attachments: [{ filename: `room-${roomId}-logs.csv`, content: csv }]
     };
 
-    transporter.sendMail(mailOptions, (error, info) => {
-      if (error) console.error("Nodemailer error:", error);
-    });
+    try {
+      await transporter.sendMail(mailOptions);
+    } catch (error) {
+      console.error("SMTP ERROR:", error);
+      return res.status(500).json({ error: "Failed to send email", details: error.message });
+    }
 
-    res.json({ success: true, message: "Email dispatched." });
+    res.status(200).json({ success: true, message: "Email sent successfully" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
