@@ -697,6 +697,24 @@ document.getElementById("admin-logs-close-btn")?.addEventListener("click", () =>
   document.getElementById("admin-logs-modal").hidden = true;
 });
 
+document.getElementById("admin-master-logs-btn")?.addEventListener("click", () => {
+  document.getElementById("admin-master-logs-modal").hidden = false;
+  document.getElementById("master-logs-content").innerHTML = '<p class="hint">Click Fetch to load logs...</p>';
+});
+
+document.getElementById("master-logs-close-btn")?.addEventListener("click", () => {
+  document.getElementById("admin-master-logs-modal").hidden = true;
+});
+
+document.getElementById("master-fetch-btn")?.addEventListener("click", () => {
+  const startDate = document.getElementById("master-start-date").value;
+  const endDate = document.getElementById("master-end-date").value;
+  const searchRoomId = document.getElementById("master-search-room").value;
+  
+  document.getElementById("master-logs-content").innerHTML = '<p class="hint">Fetching...</p>';
+  socket.emit("admin-fetch-master-logs", { startDate, endDate, searchRoomId });
+});
+
 document.getElementById("admin-logs-email-btn")?.addEventListener("click", async () => {
   const roomId = document.getElementById("admin-logs-room-id").textContent;
   const token = sessGet("wp-admin-token");
@@ -746,6 +764,30 @@ socket.on("admin-room-logs-result", ({ roomId, logs }) => {
     else text = JSON.stringify(l);
     return `<div style="padding: 6px; border-bottom: 1px solid var(--border);"><span style="color:var(--text-muted);font-size:11px;">${ts}</span><br/>${text}</div>`;
   }).join('');
+});
+
+socket.on("admin-master-logs-result", (logs) => {
+  const container = document.getElementById("master-logs-content");
+  if (!logs || logs.length === 0) {
+    container.innerHTML = '<p class="hint">No logs found for criteria.</p>';
+    return;
+  }
+  container.innerHTML = logs.map(l => {
+    const ts = new Date(l.ts || l.createdAt).toLocaleString();
+    let text = l.text || "";
+    if (l.type === "chat" || l.type === "text") text = `[Chat] <span style="color:var(--primary);">${l.name}</span>: ${l.text}`;
+    if (l.type === "video") text = `[Video] <a href="${l.url}" target="_blank" style="color:var(--primary);">${l.url}</a>`;
+    if (l.type === "video-duration") text = `[Duration] User <span style="color:var(--primary);">${l.name}</span> watched ${l.durationMinutes} min`;
+    return `<div style="padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+      <span style="color: #888;">[${ts}]</span> 
+      <strong>[${(l.type || "unknown").toUpperCase()}]</strong> 
+      <span style="color: #63b3ed;">Room: ${l.roomId}</span> | 
+      <span style="color: #cbd5e0;">Sess: ${l.sessionId || "N/A"}</span> | 
+      <span style="color: #e53e3e;">IP: ${l.clientIp || "N/A"}</span> | 
+      Role: ${l.role || "unknown"} 
+      <br> ${text}
+    </div>`;
+  }).join("");
 });
 
 function initRoom(roomId) {
@@ -1460,6 +1502,18 @@ function initRoom(roomId) {
     appendMessage(msg, msg.from === myId);
     if (msg.from !== myId && !document.body.classList.contains("chat-open") && window.innerWidth <= 720) {
       bumpChatBadge();
+    }
+  });
+
+  socket.on("chat-history", (logs) => {
+    const chatMessages = document.getElementById("chat-messages");
+    if (chatMessages) chatMessages.innerHTML = "";
+    for (const log of logs) {
+      if (log.type === "chat") {
+        appendMessage({ from: null, name: log.name, role: log.role, text: log.text, stickerUrl: log.stickerUrl, type: log.stickerUrl ? "sticker" : "chat" }, false);
+      } else if (log.type === "system") {
+        appendSystemMessage(log.text);
+      }
     }
   });
 
@@ -3399,11 +3453,14 @@ if (typeof socket !== "undefined") {
 
 // Wire up reaction buttons
 document.querySelectorAll(".reaction-btn").forEach(btn => {
-  btn.onclick = () => {
+  const triggerReaction = (e) => {
+    if (e) e.preventDefault();
     if (typeof socket !== "undefined") {
       socket.emit("reaction", { emoji: btn.dataset.emoji });
     }
   };
+  btn.addEventListener("click", triggerReaction);
+  btn.addEventListener("touchstart", triggerReaction, { passive: false });
 });
 
 

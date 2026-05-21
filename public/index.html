@@ -64,6 +64,7 @@
       <header class="admin-header">
         <h1 class="brand" data-i18n="admin-dash-title">Admin Dashboard</h1>
         <div class="admin-header-actions">
+          <button id="admin-master-logs-btn" type="button" class="btn btn-primary">Master Logs</button>
           <button id="admin-refresh-btn" type="button" class="btn btn-ghost" data-i18n="admin-refresh">Refresh</button>
           <button id="admin-logout-btn" type="button" class="btn" data-i18n="admin-logout">Logout</button>
         </div>
@@ -94,6 +95,24 @@
           <button id="admin-logs-email-btn" type="button" class="btn" style="margin-right: 8px;">Email Report</button>
           <button id="admin-logs-download-btn" type="button" class="btn" style="margin-right: auto;">Download Report</button>
           <button id="admin-logs-close-btn" type="button" class="btn btn-primary">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="admin-master-logs-modal" class="modal-overlay" hidden>
+      <div class="modal-card" style="max-width: 90vw; width: 800px;">
+        <h3>Master Aggregated Reports</h3>
+        <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+          <input type="date" id="master-start-date" class="btn" style="background: var(--bg-elev); cursor: text; border: 1px solid var(--border);" />
+          <input type="date" id="master-end-date" class="btn" style="background: var(--bg-elev); cursor: text; border: 1px solid var(--border);" />
+          <input type="text" id="master-search-room" class="btn" placeholder="Search Room ID..." style="background: var(--bg-elev); cursor: text; flex: 1; border: 1px solid var(--border);" />
+          <button id="master-fetch-btn" class="btn btn-primary">Fetch</button>
+        </div>
+        <div id="master-logs-content" style="max-height: 60vh; overflow-y: auto; text-align: left; font-size: 13px; font-family: monospace; background: var(--bg-body); padding: 8px; border-radius: 8px;">
+          <p class="hint">Click Fetch to load logs...</p>
+        </div>
+        <div class="modal-actions" style="margin-top: 16px;">
+          <button id="master-logs-close-btn" type="button" class="btn btn-primary">Close</button>
         </div>
       </div>
     </div>

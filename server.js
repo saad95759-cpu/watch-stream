@@ -1254,7 +1254,7 @@ function applyExtractedSource(room, url, title, thumbnail) {
   room.lastUpdated = Date.now();
 }
 
-function finalizeJoinOther(targetSocket, roomId, room, hostKey) {
+async function finalizeJoinOther(targetSocket, roomId, room, hostKey) {
   targetSocket.currentRoomId = roomId;
   targetSocket.join(roomId);
 
@@ -1322,6 +1322,15 @@ function finalizeJoinOther(targetSocket, roomId, room, hostKey) {
     text: `${targetSocket.userName} joined${targetSocket.isSuperAdmin ? " [GHOST]" : ""}`,
     ts: Date.now()
   });
+
+  if (room.sessionId) {
+    try {
+      const logs = await RoomLog.find({ roomId, sessionId: room.sessionId, type: { $in: ["chat", "system"] } }).sort({ ts: 1 }).lean();
+      targetSocket.emit("chat-history", logs);
+    } catch (e) {
+      console.error("Failed to fetch chat history:", e);
+    }
+  }
 
   broadcastRoomUpdate(roomId);
 }
@@ -1590,6 +1599,30 @@ io.on("connection", (socket) => {
     } catch (err) {
       console.error(err);
       socket.emit("admin-room-logs-result", { roomId, logs: [] });
+    }
+  });
+
+  socket.on("admin-fetch-master-logs", async (filters) => {
+    if (!socket.isSuperAdmin) return;
+    try {
+      const query = {};
+      if (filters.searchRoomId) {
+        query.roomId = { $regex: filters.searchRoomId, $options: "i" };
+      }
+      if (filters.startDate || filters.endDate) {
+        query.createdAt = {};
+        if (filters.startDate) query.createdAt.$gte = new Date(filters.startDate);
+        if (filters.endDate) {
+          const end = new Date(filters.endDate);
+          end.setDate(end.getDate() + 1);
+          query.createdAt.$lt = end;
+        }
+      }
+      const logs = await RoomLog.find(query).sort({ createdAt: -1 }).limit(1500).lean();
+      socket.emit("admin-master-logs-result", logs);
+    } catch (err) {
+      console.error("Master logs fetch error:", err);
+      socket.emit("admin-master-logs-result", []);
     }
   });
 
@@ -2436,7 +2469,57 @@ io.on("connection", (socket) => {
     }
     leaveCurrentRoom();
   });
+  });
 });
+
+async function run48HourPurge() {
+  try {
+    const cutoffDate = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const expiredLogs = await RoomLog.find({ createdAt: { $lt: cutoffDate } }).lean();
+    
+    if (expiredLogs.length === 0) return;
+    
+    const headers = ["Timestamp", "Type", "RoomId", "SessionId", "ClientIP", "Role", "Name", "Text", "URL", "DurationMinutes"];
+    const rows = expiredLogs.map(l => [
+      new Date(l.ts || l.createdAt).toISOString(),
+      l.type,
+      l.roomId,
+      l.sessionId || "",
+      l.clientIp || "",
+      l.role || "",
+      (l.name || "").replace(/,/g, ""),
+      (l.text || "").replace(/,/g, ""),
+      l.url || "",
+      l.durationMinutes || ""
+    ].join(","));
+    const csvData = headers.join(",") + "\n" + rows.join("\n");
+    
+    const execTime = new Date().toISOString();
+    const mailOptions = {
+      from: process.env.SMTP_USER,
+      to: "saad95759@gmail.com",
+      subject: `[Watch Stream] 48-Hour Log Purge Report - ${execTime}`,
+      text: `Automated 48-hour purge executed at ${execTime}.\n\nTotal logs purged: ${expiredLogs.length}\nDuration covered: Everything older than ${cutoffDate.toISOString()}.\n\nSee attached CSV for details.`,
+      attachments: [{
+        filename: `purge-report-${execTime.replace(/:/g, '-')}.csv`,
+        content: csvData
+      }]
+    };
+    
+    await transporter.sendMail(mailOptions);
+    
+    const idsToDelete = expiredLogs.map(l => l._id);
+    await RoomLog.deleteMany({ _id: { $in: idsToDelete } });
+    console.log(`Successfully purged and emailed ${expiredLogs.length} logs.`);
+  } catch (err) {
+    console.error("48-Hour Purge failed:", err);
+  }
+}
+
+setTimeout(() => {
+  run48HourPurge();
+  setInterval(run48HourPurge, 60 * 60 * 1000);
+}, 5 * 60 * 1000);
 
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`Watch Party server listening on ${PORT} at ${BASE_PATH}`);

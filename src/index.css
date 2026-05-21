@@ -1967,8 +1967,8 @@ html[dir="rtl"] .toast { animation: toastInRtl 0.35s var(--transition-slow) both
   width: 100%;
   height: 200px;
   pointer-events: none;
-  z-index: 9;
-  overflow: hidden;
+  z-index: 99;
+  overflow: visible;
 }
 .floating-reaction {
   position: absolute;
