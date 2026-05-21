@@ -1953,6 +1953,9 @@ html[dir="rtl"] .toast { animation: toastInRtl 0.35s var(--transition-slow) both
   font-size: 20px;
   padding: 4px 8px;
   cursor: pointer;
+  pointer-events: auto;
+  position: relative;
+  z-index: 10;
   border-radius: 6px;
   transition: all var(--transition-fast);
 }

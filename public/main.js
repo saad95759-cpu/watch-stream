@@ -3470,17 +3470,21 @@ if (typeof socket !== "undefined") {
   });
 }
 
-// Wire up reaction buttons
-document.querySelectorAll(".reaction-btn").forEach(btn => {
-  const triggerReaction = (e) => {
-    if (e) e.preventDefault();
+// Reaction buttons — Event Delegation (works regardless of render timing)
+(function setupReactionDelegation() {
+  function handleReaction(e) {
+    const btn = e.target.closest(".reaction-btn");
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const emoji = btn.dataset.emoji;
     const s = window._wpSocket || socket;
-    console.log("[CLIENT] reaction clicked", btn.dataset.emoji, "socket:", s ? s.id : "NONE");
-    if (s) s.emit("reaction", { emoji: btn.dataset.emoji });
-  };
-  btn.addEventListener("click", triggerReaction);
-  btn.addEventListener("touchstart", triggerReaction, { passive: false });
-});
+    console.log("[REACTION] clicked", emoji, "socket id:", s ? s.id : "NO_SOCKET");
+    if (s && emoji) s.emit("reaction", { emoji });
+  }
+  document.addEventListener("click", handleReaction);
+  document.addEventListener("touchstart", handleReaction, { passive: false });
+})();
 
 
 // Auto-advance logic (hook into mp4El ended if possible)
