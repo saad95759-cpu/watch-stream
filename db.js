@@ -7,7 +7,7 @@ mongoose.set('bufferCommands', false);
 export async function connectDB() {
   try {
     await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
-    console.log("Connected to MongoDB successfully");
+    console.log("✅ MongoDB Connected Successfully");
   } catch (err) {
     console.error("FATAL DB ERROR:", err);
     process.exit(1);
