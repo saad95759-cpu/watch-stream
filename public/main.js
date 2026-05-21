@@ -3228,7 +3228,14 @@ function getYoutubeId(url) {
   return null;
 }
 function addLocalHistory(item) {
-  // Deprecated: History is now managed entirely by the server session.
+  // Push into live session list (server is authoritative, but we mirror locally for instant UI)
+  if (!item || !item.url) return;
+  if (!Array.isArray(roomHistoryList)) roomHistoryList = [];
+  // Avoid consecutive duplicates
+  if (roomHistoryList.length > 0 && roomHistoryList[0].url === item.url) return;
+  roomHistoryList.unshift(item);
+  if (roomHistoryList.length > 50) roomHistoryList.pop();
+  renderLocalHistory();
 }
 function getTitleFromUrl(url) {
   try {
@@ -3451,13 +3458,12 @@ if (typeof socket !== "undefined") {
   });
 }
 
-// Wire up reaction buttons
+// Wire up reaction buttons (use window._wpSocket so the reference is always live)
 document.querySelectorAll(".reaction-btn").forEach(btn => {
   const triggerReaction = (e) => {
     if (e) e.preventDefault();
-    if (typeof socket !== "undefined") {
-      socket.emit("send-reaction", { emoji: btn.dataset.emoji });
-    }
+    const s = window._wpSocket;
+    if (s) s.emit("send-reaction", { emoji: btn.dataset.emoji });
   };
   btn.addEventListener("click", triggerReaction);
   btn.addEventListener("touchstart", triggerReaction, { passive: false });
