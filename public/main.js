@@ -3446,7 +3446,8 @@ if (typeof socket !== "undefined") {
   });
 
   // Floating Reactions
-  socket.on("broadcast-reaction", ({ emoji, from }) => {
+  socket.on("reaction", ({ emoji, from }) => {
+    console.log("[CLIENT] reaction received", emoji, "from", from);
     const canvas = document.getElementById("reaction-canvas");
     if (!canvas) return;
     const el = document.createElement("div");
@@ -3458,12 +3459,13 @@ if (typeof socket !== "undefined") {
   });
 }
 
-// Wire up reaction buttons (use window._wpSocket so the reference is always live)
+// Wire up reaction buttons
 document.querySelectorAll(".reaction-btn").forEach(btn => {
   const triggerReaction = (e) => {
     if (e) e.preventDefault();
-    const s = window._wpSocket;
-    if (s) s.emit("send-reaction", { emoji: btn.dataset.emoji });
+    const s = window._wpSocket || socket;
+    console.log("[CLIENT] reaction clicked", btn.dataset.emoji, "socket:", s ? s.id : "NONE");
+    if (s) s.emit("reaction", { emoji: btn.dataset.emoji });
   };
   btn.addEventListener("click", triggerReaction);
   btn.addEventListener("touchstart", triggerReaction, { passive: false });

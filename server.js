@@ -1829,11 +1829,12 @@ io.on("connection", (socket) => {
     });
   });
 
-  // Reaction events
-  socket.on("send-reaction", ({ emoji }) => {
+  // Reaction events — unified single event name
+  socket.on("reaction", ({ emoji }) => {
     const rid = socket.currentRoomId;
+    console.log("[SERVER] reaction received", emoji, "rid:", rid, "user:", socket.userName);
     if (!rid) return;
-    io.to(rid).emit("broadcast-reaction", { emoji, from: socket.userName });
+    io.to(rid).emit("reaction", { emoji, from: socket.userName });
   });
 
   // Queue events
