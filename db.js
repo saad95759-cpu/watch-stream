@@ -17,6 +17,7 @@ export async function connectDB() {
 // Model for Persistent Room Logs
 const logSchema = new mongoose.Schema({
   roomId: { type: String, required: true, index: true },
+  sessionId: { type: String, index: true },
   eventId: { type: String },
   type: { type: String, required: true }, // 'chat', 'system', 'video', 'video-duration', 'audit'
   text: String,

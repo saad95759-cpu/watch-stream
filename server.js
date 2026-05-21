@@ -193,6 +193,8 @@ async function appendRoomLog(roomId, entry, socket) {
        enrich.gps = socket.gps || null;
        if (room) enrich.hasPassword = !!room.password;
     }
+    const roomCheck = rooms.get(roomId);
+    if (roomCheck && roomCheck.sessionId) enrich.sessionId = roomCheck.sessionId;
     const log = new RoomLog({ ...enrich, ...entry, roomId });
     await log.save();
   } catch (err) {
@@ -1074,6 +1076,7 @@ function getOrCreateRoom(id) {
   let room = rooms.get(id);
   if (!room) {
     room = {
+      sessionId: crypto.randomBytes(8).toString("hex"),
       source: null,
       sourceType: null,
       currentTime: 0,
@@ -1289,6 +1292,7 @@ function finalizeJoinOther(targetSocket, roomId, room, hostKey) {
     thumbnail: room.thumbnail || null,
     currentTime: projectedTime(room),
     isPlaying: room.isPlaying,
+    history: room.history,
     hostSocketId: room.hostSocketId,
     hostStreamKind: room.hostStreamKind,
     roomHostId: room.roomHostId,

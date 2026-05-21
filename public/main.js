@@ -1246,6 +1246,9 @@ function initRoom(roomId) {
     myRole = state.myRole || "member";
     if (isSuperAdmin && myRole === "member") myRole = "superadmin";
 
+    roomHistoryList = state.history || [];
+    renderLocalHistory();
+
     updateRoleUI();
     renderUserList();
     renderVoteList();
@@ -1398,6 +1401,7 @@ function initRoom(roomId) {
     renderUserList();
     renderVoteList();
     renderQueueAndSuggestions();
+    renderLocalHistory();
   });
 
   socket.on("votes-updated", ({ votes }) => {
@@ -1464,8 +1468,17 @@ function initRoom(roomId) {
   });
 
   socket.on("room-ended", () => {
+    roomHistoryList = [];
+    renderLocalHistory();
     alert("The Host has ended this room.");
     window.location.href = BASE;
+  });
+
+  socket.on("clear-room-logs", () => {
+    const chatMessages = document.getElementById("chat-messages");
+    if (chatMessages) chatMessages.innerHTML = "";
+    roomHistoryList = [];
+    renderLocalHistory();
   });
 
   socket.on("system-message", ({ text }) => {
@@ -3148,10 +3161,7 @@ function parseYouTube(url) {
 
 // ===== History (Local Storage) =====
 function getLocalHistory() {
-  try {
-    const val = localStorage.getItem("wp-history");
-    return val ? JSON.parse(val) : [];
-  } catch { return []; }
+  return roomHistoryList || [];
 }
 function getYoutubeId(url) {
   if (!url) return null;
@@ -3164,19 +3174,7 @@ function getYoutubeId(url) {
   return null;
 }
 function addLocalHistory(item) {
-  const ytId = getYoutubeId(item.url);
-  if (ytId) {
-    item.url = `https://www.youtube.com/watch?v=${ytId}`;
-    item.type = "youtube";
-    item.thumbnail = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
-  }
-  const h = getLocalHistory();
-  // Avoid consecutive duplicates
-  if (h.length > 0 && h[0].url === item.url) return;
-  h.unshift(item);
-  if (h.length > 20) h.pop();
-  try { localStorage.setItem("wp-history", JSON.stringify(h)); } catch {}
-  renderLocalHistory();
+  // Deprecated: History is now managed entirely by the server session.
 }
 function getTitleFromUrl(url) {
   try {
