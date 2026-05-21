@@ -10,7 +10,6 @@ import net from "node:net";
 import { Readable } from "node:stream";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
-import fsSync from "node:fs";
 import { connectDB, RoomLog, IpBan } from "./db.js";
 
 connectDB();
