@@ -697,6 +697,29 @@ document.getElementById("admin-logs-close-btn")?.addEventListener("click", () =>
   document.getElementById("admin-logs-modal").hidden = true;
 });
 
+document.getElementById("admin-logs-email-btn")?.addEventListener("click", async () => {
+  const roomId = document.getElementById("admin-logs-room-id").textContent;
+  const token = sessGet("wp-admin-token");
+  if (!token) return alert("Admin token not found!");
+  
+  const btn = document.getElementById("admin-logs-email-btn");
+  const originalText = btn.textContent;
+  btn.textContent = "Sending...";
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`${BASE}api/admin/email-report-instant?roomId=${roomId}&token=${token}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to send email");
+    alert("Success: " + data.message);
+  } catch (err) {
+    alert("Error: " + err.message);
+  } finally {
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
+});
+
 document.getElementById("admin-logs-download-btn")?.addEventListener("click", () => {
   const roomId = document.getElementById("admin-logs-room-id").textContent;
   const token = sessGet("wp-admin-token");

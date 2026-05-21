@@ -62,6 +62,7 @@ function App() {
             <p className="hint">Loading logs...</p>
           </div>
           <div className="modal-actions">
+            <button id="admin-logs-email-btn" type="button" className="btn" style={{marginRight: '8px'}}>Email Report</button>
             <button id="admin-logs-download-btn" type="button" className="btn" style={{marginRight: 'auto'}}>Download Report</button>
             <button id="admin-logs-close-btn" type="button" className="btn btn-primary">Close</button>
           </div>
