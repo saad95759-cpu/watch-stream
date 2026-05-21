@@ -10,9 +10,19 @@ import net from "node:net";
 import { Readable } from "node:stream";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
+import nodemailer from "nodemailer";
 import { connectDB, RoomLog, IpBan } from "./db.js";
 
 connectDB();
+
+let lastEmailSentTime = 0;
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+  }
+});
 
 function extractClientIp(req, socket) {
   if (socket?.handshake?.headers?.['x-forwarded-for']) {
@@ -917,6 +927,49 @@ app.get(`${BASE_PATH}api/admin/export-logs`, async (req, res) => {
     res.setHeader("Content-Type", "application/json");
     res.send(JSON.stringify(logs, null, 2));
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get(`${BASE_PATH}api/admin/email-report-instant`, async (req, res) => {
+  const { roomId, token } = req.query;
+  if (!token || !adminTokens.has(token)) {
+    return res.status(403).json({ error: "Unauthorized" });
+  }
+
+  const now = Date.now();
+  if (now - lastEmailSentTime < 5 * 60 * 1000) {
+    return res.status(429).json({ error: "Too Many Requests. Cooldown is 5 minutes." });
+  }
+
+  lastEmailSentTime = now;
+
+  try {
+    const logs = await RoomLog.find({ roomId }).sort({ ts: 1 }).lean();
+    let csv = "Timestamp,Type,Name,Message/URL\n";
+    for (const l of logs) {
+      const ts = new Date(l.ts || l.createdAt || Date.now()).toISOString();
+      const type = l.type || "";
+      const name = (l.name || l.playedByName || "").replace(/"/g, '""');
+      const text = (l.text || l.url || "").replace(/"/g, '""');
+      csv += `${ts},${type},"${name}","${text}"\n`;
+    }
+
+    const mailOptions = {
+      from: process.env.SMTP_USER,
+      to: process.env.REPORT_RECEIVER_EMAIL,
+      subject: `Admin Report for Room: ${roomId}`,
+      text: `Attached is the CSV report for room ${roomId}.`,
+      attachments: [{ filename: `room-${roomId}-logs.csv`, content: csv }]
+    };
+
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) console.error("Nodemailer error:", error);
+    });
+
+    res.json({ success: true, message: "Email dispatched." });
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
