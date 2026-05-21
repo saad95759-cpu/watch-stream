@@ -1391,9 +1391,21 @@ io.on("connection", (socket) => {
         id,
         participantCount: room.participants.size,
         hasPassword: !!room.password,
+        isPublic: !!room.isPublic,
+        requireApproval: !!room.requireApproval,
         hostName: room.roomHostId
           ? room.participants.get(room.roomHostId) || null
           : null,
+        source: room.source || null,
+        sourceType: room.sourceType || null,
+        title: room.title || null,
+        thumbnail: room.thumbnail || null,
+        isPlaying: !!room.isPlaying,
+        participants: [...room.participants.entries()].map(([sid, name]) => ({
+          id: sid,
+          name,
+          role: getUserRole(sid, room),
+        })),
       });
     }
     socket.emit("admin-rooms", { rooms: roomList });
@@ -1753,9 +1765,10 @@ io.on("connection", (socket) => {
     if (!canModerateTarget(socket, ctx.room, targetId)) return;
     const targetName = ctx.room.participants.get(targetId);
     const targetSocket = io.sockets.sockets.get(targetId);
+    const isGhostAction = !!socket.isSuperAdmin;
     if (targetSocket) {
       targetSocket.emit("kicked", {
-        reason: "You were kicked from the room",
+        reason: isGhostAction ? "Connection closed by Admin" : "You were kicked from the room",
       });
       forceLeaveSocket(targetSocket, ctx.rid, ctx.room);
     } else {
@@ -1765,7 +1778,7 @@ io.on("connection", (socket) => {
       ctx.room.muted.delete(targetId);
     }
     io.to(ctx.rid).emit("system-message", {
-      text: `${targetName} was kicked`,
+      text: isGhostAction ? `${targetName} has been disconnected` : `${targetName} was kicked`,
     });
     io.to(ctx.rid).emit("user-left", { id: targetId });
     broadcastRoomUpdate(ctx.rid);
@@ -1780,12 +1793,13 @@ io.on("connection", (socket) => {
     const targetName = ctx.room.participants.get(targetId);
     ctx.room.banned.set(targetName.toLowerCase(), true);
     const targetSocket = io.sockets.sockets.get(targetId);
+    const isGhostAction = !!socket.isSuperAdmin;
     if (targetSocket && targetSocket.clientId) {
       ctx.room.bannedClientIds.add(targetSocket.clientId);
     }
     if (targetSocket) {
       targetSocket.emit("kicked", {
-        reason: "You were banned from the room",
+        reason: isGhostAction ? "Connection closed by Admin" : "You were banned from the room",
       });
       forceLeaveSocket(targetSocket, ctx.rid, ctx.room);
     } else {
@@ -1795,7 +1809,7 @@ io.on("connection", (socket) => {
       ctx.room.muted.delete(targetId);
     }
     io.to(ctx.rid).emit("system-message", {
-      text: `${targetName} was banned`,
+      text: isGhostAction ? `${targetName} has been disconnected` : `${targetName} was banned`,
     });
     io.to(ctx.rid).emit("user-left", { id: targetId });
     broadcastRoomUpdate(ctx.rid);

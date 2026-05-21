@@ -2011,6 +2011,36 @@ html[dir="rtl"] .toast { animation: toastInRtl 0.35s var(--transition-slow) both
   border-bottom: 1px solid var(--border);
   padding-bottom: 8px;
 }
+/* ===== Name Gate Modal ===== */
+.name-gate-card {
+  text-align: center;
+  max-width: 400px;
+}
+.name-gate-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+.name-gate-btn {
+  width: 100%;
+  margin-top: 16px;
+  justify-content: center;
+}
+
+/* ===== Name Gate Modal ===== */
+.name-gate-card {
+  text-align: center;
+  max-width: 400px;
+}
+.name-gate-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+.name-gate-btn {
+  width: 100%;
+  margin-top: 16px;
+  justify-content: center;
+}
+
 .admin-global-history {
   background: var(--bg-elev);
   border-radius: 12px;

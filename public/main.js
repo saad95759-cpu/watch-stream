@@ -273,8 +273,39 @@ if (!ROOM_ID) {
   showView("lobby");
   initLobby();
 } else {
-  showView("room");
-  initRoom(ROOM_ID);
+  const savedName = safeGet("wp-name");
+  const adminToken = sessGet("wp-admin-token");
+  if (!savedName && !adminToken) {
+    showNameGate(ROOM_ID);
+  } else {
+    showView("room");
+    initRoom(ROOM_ID);
+  }
+}
+
+function showNameGate(roomId) {
+  const modal = document.getElementById("name-gate-modal");
+  const input = document.getElementById("name-gate-input");
+  const btn = document.getElementById("name-gate-submit");
+  if (modal) modal.hidden = false;
+  if (input) input.focus();
+
+  function doJoin() {
+    const name = input.value.trim();
+    if (!name) {
+      showToast("Please enter a display name.", "error");
+      return;
+    }
+    persistName(name);
+    if (modal) modal.hidden = true;
+    showView("room");
+    initRoom(roomId);
+  }
+
+  if (btn) btn.onclick = doJoin;
+  if (input) {
+    input.onkeydown = (e) => { if (e.key === "Enter") doJoin(); };
+  }
 }
 
 function initLobby() {
