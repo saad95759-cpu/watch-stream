@@ -73,12 +73,28 @@
         <div id="admin-room-list" class="admin-room-list">
           <p class="hint">Loading rooms...</p>
         </div>
+        <div class="admin-section-title" data-i18n="admin-closed-rooms">Closed Rooms</div>
+        <div id="admin-closed-room-list" class="admin-room-list">
+          <p class="hint">Loading closed rooms...</p>
+        </div>
         <div class="admin-section-title" data-i18n="admin-history">Global History</div>
         <div id="admin-global-history" class="admin-global-history">
           <p class="hint">Loading history...</p>
         </div>
       </div>
     </section>
+
+    <div id="admin-logs-modal" class="modal-overlay" hidden>
+      <div class="modal-card" style="max-width: 600px;">
+        <h3>Room Logs: <span id="admin-logs-room-id"></span></h3>
+        <div id="admin-logs-content" style="max-height: 400px; overflow-y: auto; margin: 16px 0; text-align: left; font-size: 13px; font-family: monospace; background: var(--bg-body); padding: 8px; border-radius: 8px;">
+          <p class="hint">Loading logs...</p>
+        </div>
+        <div class="modal-actions">
+          <button id="admin-logs-close-btn" type="button" class="btn btn-primary">Close</button>
+        </div>
+      </div>
+    </div>
 
     <div id="password-modal" class="modal-overlay" hidden>
       <div class="modal-card">

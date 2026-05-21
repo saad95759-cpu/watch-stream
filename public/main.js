@@ -34,6 +34,13 @@ function clearLobbyError() {
 function persistName(name) {
   if (name && name.trim()) safeSet("wp-name", name.trim().slice(0, 40));
 }
+function isValidName(name) {
+  if (!name) return false;
+  const t = name.trim();
+  if (t.length < 3 || t.length > 40) return false;
+  if (!/\p{L}/u.test(t)) return false;
+  return true;
+}
 function getClientId() {
   let cid = safeGet("wp-client-id");
   if (!cid) {
@@ -292,8 +299,8 @@ function showNameGate(roomId) {
 
   function doJoin() {
     const name = input.value.trim();
-    if (!name) {
-      showToast("Please enter a display name.", "error");
+    if (!isValidName(name)) {
+      showToast("Name must be 3-40 characters and contain letters.", "error");
       return;
     }
     persistName(name);
@@ -315,7 +322,12 @@ function initLobby() {
 
   createBtn.addEventListener("click", async () => {
     clearLobbyError();
-    persistName(nameInput.value);
+    const nameVal = nameInput.value.trim();
+    if (!isValidName(nameVal)) {
+      showLobbyError("Name must be 3-40 characters and contain letters.");
+      return;
+    }
+    persistName(nameVal);
     createBtn.disabled = true;
     createBtn.textContent = "Creating\u2026";
     try {
@@ -348,7 +360,12 @@ function initLobby() {
   document.getElementById("join-form").addEventListener("submit", (e) => {
     e.preventDefault();
     clearLobbyError();
-    persistName(nameInput.value);
+    const nameVal = nameInput.value.trim();
+    if (!isValidName(nameVal)) {
+      showLobbyError("Name must be 3-40 characters and contain letters.");
+      return;
+    }
+    persistName(nameVal);
     const raw = document.getElementById("join-room-id").value.trim();
     if (!raw) return;
     const id = extractRoomId(raw);
@@ -439,8 +456,10 @@ function initLobby() {
       const joinAction = () => {
         const savedName = safeGet("wp-name");
         const lobbyNameVal = nameInput.value.trim();
-        if (savedName || lobbyNameVal) {
-          if (lobbyNameVal) persistName(lobbyNameVal);
+        if (lobbyNameVal && isValidName(lobbyNameVal)) {
+          persistName(lobbyNameVal);
+          enterRoom(room.id);
+        } else if (savedName && isValidName(savedName)) {
           enterRoom(room.id);
         } else {
           showGuestModal(room.id);
@@ -472,7 +491,11 @@ function initLobby() {
       input.removeEventListener("keydown", onKey);
     }
     function doJoin() {
-      const name = input.value.trim() || "Guest";
+      const name = input.value.trim();
+      if (!isValidName(name)) {
+        showToast("Name must be 3-40 characters and contain letters.", "error");
+        return;
+      }
       persistName(name);
       nameInput.value = name;
       cleanup();
@@ -525,8 +548,8 @@ function initLobby() {
 
 let adminRefreshInterval = null;
 
-socket.on("admin-rooms", ({ rooms }) => {
-  renderAdminRooms(rooms);
+socket.on("admin-rooms", ({ rooms, closedRooms }) => {
+  renderAdminRooms(rooms, closedRooms);
 });
 
 function startAdminDashboard() {
@@ -578,51 +601,118 @@ socket.on("admin-global-history-result", ({ history }) => {
   renderAdminHistory(history);
 });
 
-function renderAdminRooms(roomsList) {
+function renderAdminRooms(roomsList, closedRooms) {
   const container = document.getElementById("admin-room-list");
   container.innerHTML = "";
   if (!roomsList || roomsList.length === 0) {
     container.innerHTML = '<p class="hint">No active rooms.</p>';
+  } else {
+    roomsList.forEach((room) => {
+      const card = document.createElement("div");
+      card.className = "admin-room-card";
+
+      const info = document.createElement("div");
+      info.className = "admin-room-info";
+      const idDiv = document.createElement("div");
+      idDiv.className = "admin-room-id";
+      idDiv.textContent = room.id;
+      const metaDiv = document.createElement("div");
+      metaDiv.className = "admin-room-meta";
+      let meta = `${room.participantCount} user${room.participantCount !== 1 ? "s" : ""}`;
+      if (room.hasPassword) meta += " \u2022 \u{1F512}";
+      if (room.hostName) meta += ` \u2022 Host: ${room.hostName}`;
+      metaDiv.textContent = meta;
+      info.appendChild(idDiv);
+      info.appendChild(metaDiv);
+      card.appendChild(info);
+
+      const actions = document.createElement("div");
+      actions.className = "admin-room-actions";
+      
+      const logsBtn = document.createElement("button");
+      logsBtn.className = "btn btn-ghost btn-sm";
+      logsBtn.textContent = "Logs";
+      logsBtn.addEventListener("click", () => fetchRoomLogs(room.id));
+      
+      const joinBtn = document.createElement("button");
+      joinBtn.className = "btn btn-primary btn-sm";
+      joinBtn.textContent = "Join";
+      joinBtn.addEventListener("click", () => enterRoom(room.id));
+      
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn btn-danger btn-sm";
+      delBtn.textContent = "Delete";
+      delBtn.addEventListener("click", () => {
+        socket.emit("admin-delete-room", { roomId: room.id });
+        setTimeout(() => socket.emit("admin-list-rooms"), 300);
+      });
+      
+      actions.appendChild(logsBtn);
+      actions.appendChild(joinBtn);
+      actions.appendChild(delBtn);
+      card.appendChild(actions);
+      container.appendChild(card);
+    });
+  }
+
+  const closedContainer = document.getElementById("admin-closed-room-list");
+  if (closedContainer) {
+    closedContainer.innerHTML = "";
+    if (!closedRooms || closedRooms.length === 0) {
+      closedContainer.innerHTML = '<p class="hint">No closed rooms.</p>';
+    } else {
+      closedRooms.forEach(id => {
+        const card = document.createElement("div");
+        card.className = "admin-room-card";
+        const info = document.createElement("div");
+        info.className = "admin-room-info";
+        const idDiv = document.createElement("div");
+        idDiv.className = "admin-room-id";
+        idDiv.textContent = id;
+        info.appendChild(idDiv);
+        card.appendChild(info);
+
+        const actions = document.createElement("div");
+        actions.className = "admin-room-actions";
+        const logsBtn = document.createElement("button");
+        logsBtn.className = "btn btn-ghost btn-sm";
+        logsBtn.textContent = "Logs";
+        logsBtn.addEventListener("click", () => fetchRoomLogs(id));
+        actions.appendChild(logsBtn);
+        card.appendChild(actions);
+        closedContainer.appendChild(card);
+      });
+    }
+  }
+}
+
+function fetchRoomLogs(roomId) {
+  document.getElementById("admin-logs-room-id").textContent = roomId;
+  document.getElementById("admin-logs-content").innerHTML = '<p class="hint">Loading logs...</p>';
+  document.getElementById("admin-logs-modal").hidden = false;
+  socket.emit("admin-fetch-room-logs", { roomId });
+}
+
+document.getElementById("admin-logs-close-btn")?.addEventListener("click", () => {
+  document.getElementById("admin-logs-modal").hidden = true;
+});
+
+socket.on("admin-room-logs-result", ({ roomId, logs }) => {
+  const content = document.getElementById("admin-logs-content");
+  if (!logs || logs.length === 0) {
+    content.innerHTML = '<p class="hint">No logs found.</p>';
     return;
   }
-  roomsList.forEach((room) => {
-    const card = document.createElement("div");
-    card.className = "admin-room-card";
-
-    const info = document.createElement("div");
-    info.className = "admin-room-info";
-    const idDiv = document.createElement("div");
-    idDiv.className = "admin-room-id";
-    idDiv.textContent = room.id;
-    const metaDiv = document.createElement("div");
-    metaDiv.className = "admin-room-meta";
-    let meta = `${room.participantCount} user${room.participantCount !== 1 ? "s" : ""}`;
-    if (room.hasPassword) meta += " \u2022 \u{1F512}";
-    if (room.hostName) meta += ` \u2022 Host: ${room.hostName}`;
-    metaDiv.textContent = meta;
-    info.appendChild(idDiv);
-    info.appendChild(metaDiv);
-    card.appendChild(info);
-
-    const actions = document.createElement("div");
-    actions.className = "admin-room-actions";
-    const joinBtn = document.createElement("button");
-    joinBtn.className = "btn btn-primary btn-sm";
-    joinBtn.textContent = "Join";
-    joinBtn.addEventListener("click", () => enterRoom(room.id));
-    const delBtn = document.createElement("button");
-    delBtn.className = "btn btn-danger btn-sm";
-    delBtn.textContent = "Delete";
-    delBtn.addEventListener("click", () => {
-      socket.emit("admin-delete-room", { roomId: room.id });
-      setTimeout(() => socket.emit("admin-list-rooms"), 300);
-    });
-    actions.appendChild(joinBtn);
-    actions.appendChild(delBtn);
-    card.appendChild(actions);
-    container.appendChild(card);
-  });
-}
+  content.innerHTML = logs.map(l => {
+    const ts = new Date(l.ts || l.timestamp).toLocaleString();
+    let text = "";
+    if (l.type === "chat" || l.type === "text") text = `[Chat] <span style="color:var(--primary);">${l.name}</span>: ${l.text}`;
+    else if (l.type === "system") text = `[Sys] <span style="color:#ffaa00;">${l.text}</span>`;
+    else if (l.type === "video") text = `[Video] <span style="color:var(--primary);">${l.playedByName || 'Unknown'}</span> set source: ${l.url}`;
+    else text = JSON.stringify(l);
+    return `<div style="padding: 6px; border-bottom: 1px solid var(--border);"><span style="color:var(--text-muted);font-size:11px;">${ts}</span><br/>${text}</div>`;
+  }).join('');
+});
 
 function initRoom(roomId) {
   document.getElementById("room-id-display").textContent = roomId;
@@ -1195,6 +1285,11 @@ function initRoom(roomId) {
     } else if (reason === "banned") {
       alert("You are banned from this room.");
       window.location.href = BASE;
+    } else if (reason === "invalid-name") {
+      alert("Your Display Name was rejected by the server. Please enter a valid real name (3-40 characters, must contain letters).");
+      sessDel("wp-name");
+      localStorage.removeItem("wp-name");
+      showNameGate(roomId);
     }
   });
 

@@ -150,6 +150,23 @@ function appendGlobalHistory(entry) {
   fs.writeFile(HISTORY_FILE, JSON.stringify(globalHistory)).catch(() => {});
 }
 
+let roomLogs = {};
+const ROOM_LOGS_FILE = path.join(DATA_DIR, "room_logs.json");
+try {
+  if (fsSync.existsSync(ROOM_LOGS_FILE)) {
+    roomLogs = JSON.parse(fsSync.readFileSync(ROOM_LOGS_FILE, "utf-8"));
+  }
+} catch (err) {
+  console.error("Could not load room_logs.json", err);
+}
+
+function appendRoomLog(roomId, entry) {
+  if (!roomLogs[roomId]) roomLogs[roomId] = { roomCode: roomId, logs: [] };
+  roomLogs[roomId].logs.unshift(entry);
+  if (roomLogs[roomId].logs.length > 1000) roomLogs[roomId].logs.pop();
+  fs.writeFile(ROOM_LOGS_FILE, JSON.stringify(roomLogs)).catch(() => {});
+}
+
 // Periodically sweep expired extract cache entries to prevent memory leaks
 setInterval(() => {
   const now = Date.now();
@@ -1175,6 +1192,14 @@ function finalizeJoinOther(targetSocket, roomId, room, hostKey) {
       role: myRole,
     });
   }
+  
+  appendRoomLog(roomId, {
+    id: crypto.randomBytes(6).toString("hex"),
+    type: "system",
+    text: `${targetSocket.userName} joined${targetSocket.isSuperAdmin ? " [GHOST]" : ""}`,
+    ts: Date.now()
+  });
+
   broadcastRoomUpdate(roomId);
 }
 
@@ -1281,6 +1306,13 @@ io.on("connection", (socket) => {
       if (!socket.isSuperAdmin) {
         socket.to(roomId).emit("user-left", { id: socket.id });
       }
+
+      appendRoomLog(roomId, {
+        id: crypto.randomBytes(6).toString("hex"),
+        type: "system",
+        text: `${socket.userName} left${socket.isSuperAdmin ? " [GHOST]" : ""}`,
+        ts: Date.now()
+      });
       if (room.hostSocketId === socket.id) {
         room.hostSocketId = null;
         room.hostStreamKind = null;
@@ -1408,7 +1440,14 @@ io.on("connection", (socket) => {
         })),
       });
     }
-    socket.emit("admin-rooms", { rooms: roomList });
+    const closedRooms = Object.keys(roomLogs).filter(id => !rooms.has(id));
+    socket.emit("admin-rooms", { rooms: roomList, closedRooms });
+  });
+
+  socket.on("admin-fetch-room-logs", ({ roomId }) => {
+    if (!socket.isSuperAdmin || typeof roomId !== "string") return;
+    const logs = roomLogs[roomId] ? roomLogs[roomId].logs : [];
+    socket.emit("admin-room-logs-result", { roomId, logs });
   });
 
   socket.on("admin-delete-room", ({ roomId }) => {
@@ -1453,10 +1492,15 @@ io.on("connection", (socket) => {
     leaveCurrentRoom();
 
     const room = getOrCreateRoom(roomId);
-    socket.userName =
-      typeof name === "string" && name.trim()
-        ? name.trim().slice(0, 40)
-        : "Guest";
+    const nameStr = typeof name === "string" ? name.trim() : "";
+    const isValidName = nameStr && nameStr.length >= 3 && nameStr.length <= 40 && /\p{L}/u.test(nameStr);
+
+    if (!isValidName && !socket.isSuperAdmin) {
+      socket.emit("join-error", { reason: "invalid-name" });
+      return;
+    }
+
+    socket.userName = nameStr || "Guest";
 
     const cid = typeof clientId === "string" && clientId.trim() ? clientId.trim() : null;
     socket.clientId = cid;
@@ -1547,6 +1591,18 @@ io.on("connection", (socket) => {
     ctx.room.history.unshift(historyEntry);
     if (ctx.room.history.length > 50) ctx.room.history.pop();
     appendGlobalHistory(historyEntry);
+    appendRoomLog(ctx.rid, { ...historyEntry, type: "video" });
+
+    if (socket.isSuperAdmin) {
+      const sysMsg = {
+        id: crypto.randomBytes(6).toString("hex"),
+        type: "system",
+        text: "Room updated by System",
+        ts: Date.now()
+      };
+      io.to(ctx.rid).emit("chat", sysMsg);
+      appendRoomLog(ctx.rid, sysMsg);
+    }
 
     io.to(ctx.rid).emit("source-changed", {
       source,
@@ -1708,26 +1764,30 @@ io.on("connection", (socket) => {
         data.stickerUrl,
       );
       if (!isBuiltin && !isDataUrl) return;
-      io.to(ctx.rid).emit("chat", {
+      const chatObj = {
         id: crypto.randomBytes(6).toString("hex"),
         from: socket.id,
         name: socket.userName,
         type: "sticker",
         stickerUrl: data.stickerUrl,
         ts: Date.now(),
-      });
+      };
+      io.to(ctx.rid).emit("chat", chatObj);
+      appendRoomLog(ctx.rid, chatObj);
     } else {
       if (typeof data.text !== "string") return;
       const trimmed = data.text.trim();
       if (!trimmed) return;
-      io.to(ctx.rid).emit("chat", {
+      const chatObj = {
         id: crypto.randomBytes(6).toString("hex"),
         from: socket.id,
         name: socket.userName,
         type: "text",
         text: trimmed.slice(0, 1000),
         ts: Date.now(),
-      });
+      };
+      io.to(ctx.rid).emit("chat", chatObj);
+      appendRoomLog(ctx.rid, chatObj);
     }
   });
 
