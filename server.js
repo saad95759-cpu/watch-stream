@@ -414,11 +414,16 @@ const io = new Server(httpServer, {
   cors: { origin: corsOrigin, credentials: true },
 });
 
+// Serve dist/ (Vite production build) if it exists, else fall back to public/ for dev
+const distDir = path.join(SERVER_DIR, "dist");
 const publicDir = path.join(SERVER_DIR, "public");
-app.use(BASE_PATH, express.static(publicDir, { index: false }));
+const staticDir = fsSync.existsSync(distDir) ? distDir : publicDir;
+console.log(`[Static] Serving from: ${staticDir}`);
+
+app.use(BASE_PATH, express.static(staticDir, { index: false }));
 
 function sendIndex(_req, res) {
-  res.sendFile(path.join(publicDir, "index.html"));
+  res.sendFile(path.join(staticDir, "index.html"));
 }
 app.get(BASE_PATH, sendIndex);
 app.get(`${BASE_PATH}r/:roomId`, sendIndex);
