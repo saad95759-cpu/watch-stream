@@ -1491,7 +1491,11 @@ io.on("connection", (socket) => {
     if (typeof roomId !== "string" || !roomId) return;
     leaveCurrentRoom();
 
-    const room = getOrCreateRoom(roomId);
+    let room = rooms.get(roomId);
+    if (!room) {
+      socket.emit("join-error", { reason: "not-found" });
+      return;
+    }
     const nameStr = typeof name === "string" ? name.trim() : "";
     const isValidName = nameStr && nameStr.length >= 3 && nameStr.length <= 40 && /\p{L}/u.test(nameStr);
 

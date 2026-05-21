@@ -1290,6 +1290,9 @@ function initRoom(roomId) {
       sessDel("wp-name");
       localStorage.removeItem("wp-name");
       showNameGate(roomId);
+    } else if (reason === "not-found") {
+      alert("Room Not Found! The requested room does not exist.");
+      window.location.href = BASE;
     }
   });
 
