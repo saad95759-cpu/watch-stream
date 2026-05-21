@@ -10,6 +10,26 @@ import net from "node:net";
 import { Readable } from "node:stream";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
+import fsSync from "node:fs";
+import { connectDB, RoomLog, IpBan } from "./db.js";
+
+connectDB();
+
+function extractClientIp(req, socket) {
+  if (socket?.handshake?.headers?.['x-forwarded-for']) {
+    return socket.handshake.headers['x-forwarded-for'].split(',')[0].trim();
+  }
+  if (socket?.handshake?.address) {
+    return socket.handshake.address;
+  }
+  if (req?.headers?.['x-forwarded-for']) {
+    return req.headers['x-forwarded-for'].split(',')[0].trim();
+  }
+  if (req?.socket?.remoteAddress) {
+    return req.socket.remoteAddress;
+  }
+  return 'unknown';
+}
 
 function isPrivateIp(ip) {
   if (!ip) return true;
@@ -150,21 +170,13 @@ function appendGlobalHistory(entry) {
   fs.writeFile(HISTORY_FILE, JSON.stringify(globalHistory)).catch(() => {});
 }
 
-let roomLogs = {};
-const ROOM_LOGS_FILE = path.join(DATA_DIR, "room_logs.json");
-try {
-  if (fsSync.existsSync(ROOM_LOGS_FILE)) {
-    roomLogs = JSON.parse(fsSync.readFileSync(ROOM_LOGS_FILE, "utf-8"));
+async function appendRoomLog(roomId, entry) {
+  try {
+    const log = new RoomLog({ ...entry, roomId });
+    await log.save();
+  } catch (err) {
+    console.error("Error saving room log to DB:", err);
   }
-} catch (err) {
-  console.error("Could not load room_logs.json", err);
-}
-
-function appendRoomLog(roomId, entry) {
-  if (!roomLogs[roomId]) roomLogs[roomId] = { roomCode: roomId, logs: [] };
-  roomLogs[roomId].logs.unshift(entry);
-  if (roomLogs[roomId].logs.length > 1000) roomLogs[roomId].logs.pop();
-  fs.writeFile(ROOM_LOGS_FILE, JSON.stringify(roomLogs)).catch(() => {});
 }
 
 // Periodically sweep expired extract cache entries to prevent memory leaks
@@ -1415,7 +1427,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("admin-list-rooms", () => {
+  socket.on("admin-list-rooms", async () => {
     if (!socket.isSuperAdmin) return;
     const roomList = [];
     for (const [id, room] of rooms) {
@@ -1440,14 +1452,25 @@ io.on("connection", (socket) => {
         })),
       });
     }
-    const closedRooms = Object.keys(roomLogs).filter(id => !rooms.has(id));
-    socket.emit("admin-rooms", { rooms: roomList, closedRooms });
+    try {
+      const allLoggedRooms = await RoomLog.distinct('roomId');
+      const closedRooms = allLoggedRooms.filter(id => !rooms.has(id));
+      socket.emit("admin-rooms", { rooms: roomList, closedRooms });
+    } catch (err) {
+      console.error(err);
+      socket.emit("admin-rooms", { rooms: roomList, closedRooms: [] });
+    }
   });
 
-  socket.on("admin-fetch-room-logs", ({ roomId }) => {
+  socket.on("admin-fetch-room-logs", async ({ roomId }) => {
     if (!socket.isSuperAdmin || typeof roomId !== "string") return;
-    const logs = roomLogs[roomId] ? roomLogs[roomId].logs : [];
-    socket.emit("admin-room-logs-result", { roomId, logs });
+    try {
+      const logs = await RoomLog.find({ roomId }).sort({ ts: -1 }).limit(1000).lean();
+      socket.emit("admin-room-logs-result", { roomId, logs });
+    } catch (err) {
+      console.error(err);
+      socket.emit("admin-room-logs-result", { roomId, logs: [] });
+    }
   });
 
   socket.on("admin-delete-room", ({ roomId }) => {
@@ -1487,7 +1510,7 @@ io.on("connection", (socket) => {
     socket.emit("admin-room-history-result", { history: room ? room.history : [] });
   });
 
-  socket.on("join", ({ roomId, name, password, token, hostKey, clientId }) => {
+  socket.on("join", async ({ roomId, name, password, token, hostKey, clientId }) => {
     if (typeof roomId !== "string" || !roomId) return;
     leaveCurrentRoom();
 
@@ -1496,6 +1519,18 @@ io.on("connection", (socket) => {
       socket.emit("join-error", { reason: "not-found" });
       return;
     }
+
+    const clientIp = extractClientIp(socket.request, socket);
+    try {
+      const isBanned = await IpBan.exists({ roomId, ip: clientIp });
+      if (isBanned) {
+        socket.emit("join-error", { reason: "banned" });
+        return;
+      }
+    } catch (err) {
+      console.error("IP Ban Check Error:", err);
+    }
+
     const nameStr = typeof name === "string" ? name.trim() : "";
     const isValidName = nameStr && nameStr.length >= 3 && nameStr.length <= 40 && /\p{L}/u.test(nameStr);
 
@@ -1834,6 +1869,11 @@ io.on("connection", (socket) => {
       targetSocket.emit("kicked", {
         reason: isGhostAction ? "Connection closed by Admin" : "You were kicked from the room",
       });
+      const targetIp = extractClientIp(targetSocket.request, targetSocket);
+      if (targetIp && targetIp !== 'unknown') {
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+        IpBan.create({ roomId: ctx.rid, ip: targetIp, expiresAt }).catch(err => console.error("IP Ban Error", err));
+      }
       forceLeaveSocket(targetSocket, ctx.rid, ctx.room);
     } else {
       ctx.room.participants.delete(targetId);
@@ -1865,6 +1905,11 @@ io.on("connection", (socket) => {
       targetSocket.emit("kicked", {
         reason: isGhostAction ? "Connection closed by Admin" : "You were banned from the room",
       });
+      const targetIp = extractClientIp(targetSocket.request, targetSocket);
+      if (targetIp && targetIp !== 'unknown') {
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+        IpBan.create({ roomId: ctx.rid, ip: targetIp, expiresAt }).catch(err => console.error("IP Ban Error", err));
+      }
       forceLeaveSocket(targetSocket, ctx.rid, ctx.room);
     } else {
       ctx.room.participants.delete(targetId);
