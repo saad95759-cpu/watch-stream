@@ -10,7 +10,8 @@ export async function connectDB() {
     console.log("Connected to MongoDB successfully");
   } catch (err) {
     console.error("MongoDB connection error. Retrying in 5s...\nTrace:", err.stack);
-    setTimeout(connectDB, 5000);
+    await new Promise(res => setTimeout(res, 5000));
+    return connectDB();
   }
 }
 

@@ -13,7 +13,7 @@ import fsSync from "node:fs";
 import nodemailer from "nodemailer";
 import { connectDB, RoomLog, IpBan } from "./db.js";
 
-connectDB();
+await connectDB();
 
 let lastEmailSentTime = 0;
 const transporter = nodemailer.createTransport({
