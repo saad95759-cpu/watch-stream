@@ -8,6 +8,11 @@
     <link rel="stylesheet" href="/watch-party/style.css" />
   </head>
   <body>
+    <div id="global-announcement-banner" class="global-announcement-banner" hidden>
+      <span class="announcement-icon">📢</span>
+      <span id="global-announcement-text" class="announcement-text"></span>
+      <button id="global-announcement-close" class="announcement-close" aria-label="Dismiss announcement">&times;</button>
+    </div>
     <section id="lobby" class="lobby" hidden>
       <div class="lobby-toolbar" style="position: absolute; top: 16px; right: 16px; display: flex; gap: 8px; z-index: 10;">
         <button id="lobby-theme-toggle" class="btn btn-ghost" title="Toggle Theme">🌗 Theme</button>
@@ -92,6 +97,14 @@
         </div>
       </header>
       <div class="admin-body">
+        <div class="admin-broadcast-section" style="background: var(--bg-elev-2); border: 1px solid var(--border); padding: 16px; border-radius: 12px; margin-bottom: 24px;">
+          <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px;">📢 Send System Announcement</h3>
+          <p class="hint">This message will display as a prominent top banner to all users on the home page and in all active rooms.</p>
+          <div style="display: flex; gap: 12px; margin-top: 12px;">
+            <input type="text" id="admin-broadcast-input" class="btn" placeholder="Type announcement message here..." style="flex: 1; text-align: left; background: var(--bg-body); border: 1px solid var(--border); cursor: text; color: var(--text);" />
+            <button id="admin-broadcast-send-btn" class="btn btn-primary">Send Announcement</button>
+          </div>
+        </div>
         <div class="admin-section-title" data-i18n="admin-rooms">Active Rooms</div>
         <div id="admin-room-list" class="admin-room-list">
           <p class="hint">Loading rooms...</p>

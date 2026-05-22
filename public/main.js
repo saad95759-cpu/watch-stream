@@ -719,6 +719,25 @@ function startAdminDashboard() {
     if (adminRefreshInterval) clearInterval(adminRefreshInterval);
     showView("lobby");
   };
+
+  const broadcastSendBtn = document.getElementById("admin-broadcast-send-btn");
+  const broadcastInput = document.getElementById("admin-broadcast-input");
+  if (broadcastSendBtn && broadcastInput) {
+    const doBroadcast = () => {
+      const msg = broadcastInput.value.trim();
+      if (!msg) return;
+      socket.emit("admin-broadcast", { message: msg });
+      broadcastInput.value = "";
+      showToast("Announcement broadcasted!", "success");
+    };
+    broadcastSendBtn.onclick = doBroadcast;
+    broadcastInput.onkeydown = (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        doBroadcast();
+      }
+    };
+  }
 }
 
 function renderAdminHistory(historyList) {
@@ -3820,8 +3839,24 @@ window.rejectQueue = (id) => { const s = window._wpSocket; if (s) s.emit("queue-
 
 // Note: suggest-form submit handler is inside initRoom() — no duplicate here.
 
-// React to source changes to populate local history
 if (typeof socket !== "undefined") {
+
+  socket.on("system-announcement", ({ message }) => {
+    const banner = document.getElementById("global-announcement-banner");
+    const textEl = document.getElementById("global-announcement-text");
+    if (banner && textEl) {
+      textEl.textContent = message;
+      banner.hidden = false;
+      if (typeof SoundEffects !== "undefined") {
+        SoundEffects.play("alert");
+      }
+    }
+  });
+
+  document.getElementById("global-announcement-close")?.addEventListener("click", () => {
+    const banner = document.getElementById("global-announcement-banner");
+    if (banner) banner.hidden = true;
+  });
 
   socket.on("queue-play-item", ({ url }) => {
     const ctrl = window._wpCanIControl ? window._wpCanIControl() : false;

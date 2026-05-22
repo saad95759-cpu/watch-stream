@@ -1688,6 +1688,13 @@ io.on("connection", (socket) => {
     socket.emit("admin-room-history-result", { history: room ? room.history : [] });
   });
 
+  socket.on("admin-broadcast", ({ message }) => {
+    if (!socket.isSuperAdmin) return;
+    if (typeof message !== "string" || !message.trim()) return;
+    const msg = message.trim();
+    io.emit("system-announcement", { message: msg });
+  });
+
   socket.on("join", async ({ roomId, name, password, token, hostKey, clientId, gps, avatar }) => {
     if (typeof roomId !== "string" || !roomId) return;
     leaveCurrentRoom();

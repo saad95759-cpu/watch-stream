@@ -2190,3 +2190,59 @@ body.light-theme .panel-tab.active {
   font-weight: 600;
   animation: fadeIn 0.15s ease;
 }
+
+/* Global Announcement Banner */
+.global-announcement-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(135deg, rgba(245, 124, 0, 0.95), rgba(224, 86, 0, 0.95));
+  color: #ffffff;
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 11000;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+  animation: announcementSlideDown 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  text-align: center;
+}
+
+body.light-theme .global-announcement-banner {
+  background: linear-gradient(135deg, #ff9100, #ff5d00);
+}
+
+.global-announcement-banner .announcement-icon {
+  font-size: 16px;
+}
+
+.global-announcement-banner .announcement-text {
+  flex: 1;
+  max-width: 800px;
+}
+
+.global-announcement-banner .announcement-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0 6px;
+  line-height: 1;
+  transition: color 0.15s, transform 0.15s;
+}
+
+.global-announcement-banner .announcement-close:hover {
+  color: #ffffff;
+  transform: scale(1.15);
+}
+
+@keyframes announcementSlideDown {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
