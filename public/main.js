@@ -738,6 +738,28 @@ function startAdminDashboard() {
       }
     };
   }
+
+  // Setup tab click listeners once
+  if (!window._adminTabsInit) {
+    window._adminTabsInit = true;
+    document.querySelectorAll(".admin-tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".admin-tab").forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        
+        const targetTab = tab.dataset.tab;
+        document.querySelectorAll(".admin-tab-panel").forEach(panel => {
+          panel.hidden = true;
+        });
+        const activePanel = document.getElementById(`admin-tab-${targetTab}`);
+        if (activePanel) activePanel.hidden = false;
+      });
+    });
+  }
+  
+  // Activate default tab
+  const defaultTab = document.querySelector('.admin-tab[data-tab="broadcast"]');
+  if (defaultTab) defaultTab.click();
 }
 
 function renderAdminHistory(historyList) {

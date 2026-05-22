@@ -2246,3 +2246,38 @@ body.light-theme .global-announcement-banner {
   from { transform: translateY(-100%); }
   to { transform: translateY(0); }
 }
+
+/* Admin Tabs styles */
+.admin-tabs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 8px;
+}
+.admin-tab {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 10px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.admin-tab:hover {
+  color: var(--text);
+  background: var(--bg-elev);
+}
+.admin-tab.active {
+  color: var(--primary);
+  background: var(--primary-dim);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15);
+}
+.admin-tab-panel {
+  animation: fadeIn 0.25s ease-out;
+}

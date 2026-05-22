@@ -97,25 +97,43 @@
         </div>
       </header>
       <div class="admin-body">
-        <div class="admin-broadcast-section" style="background: var(--bg-elev-2); border: 1px solid var(--border); padding: 16px; border-radius: 12px; margin-bottom: 24px;">
-          <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px;">📢 Send System Announcement</h3>
-          <p class="hint">This message will display as a prominent top banner to all users on the home page and in all active rooms.</p>
-          <div style="display: flex; gap: 12px; margin-top: 12px;">
-            <input type="text" id="admin-broadcast-input" class="btn" placeholder="Type announcement message here..." style="flex: 1; text-align: left; background: var(--bg-body); border: 1px solid var(--border); cursor: text; color: var(--text);" />
-            <button id="admin-broadcast-send-btn" class="btn btn-primary">Send Announcement</button>
+        <!-- Admin Dashboard Tabs -->
+        <div class="admin-tabs">
+          <button class="admin-tab active" data-tab="broadcast">📢 Broadcast</button>
+          <button class="admin-tab" data-tab="rooms">🚪 Rooms</button>
+          <button class="admin-tab" data-tab="history">📜 History</button>
+        </div>
+
+        <!-- Broadcast Tab Panel -->
+        <div id="admin-tab-broadcast" class="admin-tab-panel">
+          <div class="admin-broadcast-section" style="background: var(--bg-elev-2); border: 1px solid var(--border); padding: 20px; border-radius: 12px; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+            <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px; color: var(--primary);">📢 Send System Announcement</h3>
+            <p class="hint">This message will display as a prominent top banner to all users on the home page and in all active rooms.</p>
+            <div style="display: flex; gap: 12px; margin-top: 16px;">
+              <input type="text" id="admin-broadcast-input" class="btn" placeholder="Type announcement message here..." style="flex: 1; text-align: left; background: var(--bg-body); border: 1px solid var(--border); cursor: text; color: var(--text);" />
+              <button id="admin-broadcast-send-btn" class="btn btn-primary">Send Announcement</button>
+            </div>
           </div>
         </div>
-        <div class="admin-section-title" data-i18n="admin-rooms">Active Rooms</div>
-        <div id="admin-room-list" class="admin-room-list">
-          <p class="hint">Loading rooms...</p>
+
+        <!-- Rooms Tab Panel -->
+        <div id="admin-tab-rooms" class="admin-tab-panel" hidden>
+          <div class="admin-section-title" data-i18n="admin-rooms">Active Rooms</div>
+          <div id="admin-room-list" class="admin-room-list" style="margin-bottom: 24px;">
+            <p class="hint">Loading rooms...</p>
+          </div>
+          <div class="admin-section-title" data-i18n="admin-closed-rooms">Closed Rooms</div>
+          <div id="admin-closed-room-list" class="admin-room-list">
+            <p class="hint">Loading closed rooms...</p>
+          </div>
         </div>
-        <div class="admin-section-title" data-i18n="admin-closed-rooms">Closed Rooms</div>
-        <div id="admin-closed-room-list" class="admin-room-list">
-          <p class="hint">Loading closed rooms...</p>
-        </div>
-        <div class="admin-section-title" data-i18n="admin-history">Global History</div>
-        <div id="admin-global-history" class="admin-global-history">
-          <p class="hint">Loading history...</p>
+
+        <!-- History Tab Panel -->
+        <div id="admin-tab-history" class="admin-tab-panel" hidden>
+          <div class="admin-section-title" data-i18n="admin-history">Global History</div>
+          <div id="admin-global-history" class="admin-global-history">
+            <p class="hint">Loading history...</p>
+          </div>
         </div>
       </div>
     </section>
