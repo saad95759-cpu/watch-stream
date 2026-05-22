@@ -77,6 +77,13 @@ class MockRoomLogModel {
     }
     return { deletedCount: originalCount - mockLogs.length };
   }
+  static async distinct(field) {
+    if (field === 'roomId') {
+      const ids = mockLogs.map(l => l.roomId).filter(Boolean);
+      return [...new Set(ids)];
+    }
+    return [];
+  }
 }
 
 class MockIpBanModel {
