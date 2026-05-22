@@ -9,9 +9,31 @@
   </head>
   <body>
     <section id="lobby" class="lobby" hidden>
+      <div class="lobby-toolbar" style="position: absolute; top: 16px; right: 16px; display: flex; gap: 8px; z-index: 10;">
+        <button id="lobby-theme-toggle" class="btn btn-ghost" title="Toggle Theme">🌗 Theme</button>
+      </div>
       <div class="lobby-card">
         <h1 class="brand">Watch Party</h1>
         <p class="tagline" data-i18n="lobby-title">Watch videos together, in sync.</p>
+        <div class="avatar-selection-wrapper" style="margin-bottom: 8px;">
+          <span class="field-label" style="display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px;">Choose Avatar</span>
+          <div class="avatar-preset-picker lobby-preset-picker" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
+            <button type="button" class="avatar-preset active" data-emoji="👤" style="background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 16px;">👤</button>
+            <button type="button" class="avatar-preset" data-emoji="🐱" style="background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 16px;">🐱</button>
+            <button type="button" class="avatar-preset" data-emoji="🐶" style="background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 16px;">🐶</button>
+            <button type="button" class="avatar-preset" data-emoji="🦊" style="background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 16px;">🦊</button>
+            <button type="button" class="avatar-preset" data-emoji="🦁" style="background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 16px;">🦁</button>
+            <button type="button" class="avatar-preset" data-emoji="🚀" style="background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 16px;">🚀</button>
+            <button type="button" class="avatar-preset" data-emoji="👾" style="background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 16px;">👾</button>
+          </div>
+          <div class="avatar-custom-row" style="display: flex; gap: 8px; align-items: center;">
+            <label class="btn btn-ghost btn-sm" style="flex: 1; cursor: pointer; text-align: center; justify-content: center;">
+              <span>Upload Custom Image</span>
+              <input id="avatar-file-input" type="file" accept="image/*" hidden />
+            </label>
+            <div id="avatar-preview" class="avatar-preview-circle" style="width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 20px; overflow: hidden; background: var(--bg-elev-2);">👤</div>
+          </div>
+        </div>
         <label class="field">
           <span data-i18n="lobby-name-label">Your name</span>
           <input id="lobby-name" type="text" placeholder="Guest" maxlength="40" autocomplete="nickname" />
@@ -153,6 +175,18 @@
             <span class="slider"></span>
           </label>
         </div>
+        <div class="settings-row" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px;">
+          <div>
+            <strong>Chat Slow Mode</strong>
+            <p class="hint">Restrict how frequently members can send messages.</p>
+          </div>
+          <select id="slow-mode-select" class="btn btn-sm" style="cursor: pointer; background: var(--bg-elev-2); border: 1px solid var(--border);">
+            <option value="0">Disabled</option>
+            <option value="5">5 seconds</option>
+            <option value="10">10 seconds</option>
+            <option value="30">30 seconds</option>
+          </select>
+        </div>
         <div class="modal-actions">
           <button id="room-settings-close" type="button" class="btn btn-primary">Done</button>
         </div>
@@ -236,6 +270,45 @@
       </div>
     </div>
 
+    <div id="analytics-modal" class="modal-overlay" hidden>
+      <div class="modal-card" style="max-width: 420px; width: 90vw;">
+        <h3 style="display: flex; align-items: center; gap: 8px;">📊 Room Stats</h3>
+        <p class="hint">Real-time stats for the current session.</p>
+        
+        <div class="analytics-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0;">
+          <div class="analytics-stat-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); padding: 12px; border-radius: 10px; text-align: center;">
+            <div style="font-size: 20px;">👥</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Peak Viewers</div>
+            <strong id="stat-peak-viewers" style="font-size: 18px; color: var(--primary);">0</strong>
+          </div>
+          <div class="analytics-stat-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); padding: 12px; border-radius: 10px; text-align: center;">
+            <div style="font-size: 20px;">💬</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Total Messages</div>
+            <strong id="stat-total-messages" style="font-size: 18px; color: var(--primary);">0</strong>
+          </div>
+          <div class="analytics-stat-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); padding: 12px; border-radius: 10px; text-align: center;">
+            <div style="font-size: 20px;">🔥</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Total Reactions</div>
+            <strong id="stat-total-reactions" style="font-size: 18px; color: var(--primary);">0</strong>
+          </div>
+          <div class="analytics-stat-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); padding: 12px; border-radius: 10px; text-align: center;">
+            <div style="font-size: 20px;">⏱</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Session Duration</div>
+            <strong id="stat-session-duration" style="font-size: 18px; color: var(--primary);">0m</strong>
+          </div>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.01); border: 1px solid var(--border); padding: 12px; border-radius: 10px; margin-bottom: 12px;">
+          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Currently Playing Video</div>
+          <div id="stat-current-video" style="font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);">None</div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="analytics-close-btn" type="button" class="btn btn-primary">Close</button>
+        </div>
+      </div>
+    </div>
+
     <div id="toast-container" class="toast-container"></div>
 
     <footer class="app-footer">Made By Saad H.</footer>
@@ -245,6 +318,18 @@
         <div class="name-gate-icon">&#127916;</div>
         <h3>Welcome to Watch Party</h3>
         <p class="hint">Choose a display name before entering the room.</p>
+        <div class="avatar-selection-wrapper" style="margin-bottom: 12px; text-align: left;">
+          <span class="field-label" style="display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 6px;">Choose Avatar</span>
+          <div class="avatar-preset-picker gate-preset-picker" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; justify-content: center;">
+            <button type="button" class="avatar-preset active" data-emoji="👤" style="background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 16px;">👤</button>
+            <button type="button" class="avatar-preset" data-emoji="🐱" style="background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 16px;">🐱</button>
+            <button type="button" class="avatar-preset" data-emoji="🐶" style="background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 16px;">🐶</button>
+            <button type="button" class="avatar-preset" data-emoji="🦊" style="background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 16px;">🦊</button>
+            <button type="button" class="avatar-preset" data-emoji="🦁" style="background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 16px;">🦁</button>
+            <button type="button" class="avatar-preset" data-emoji="🚀" style="background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 16px;">🚀</button>
+            <button type="button" class="avatar-preset" data-emoji="👾" style="background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 16px;">👾</button>
+          </div>
+        </div>
         <input id="name-gate-input" type="text" placeholder="Enter your name" maxlength="40" autocomplete="nickname" />
         <button id="name-gate-submit" type="button" class="btn btn-primary name-gate-btn">Enter Room</button>
       </div>
@@ -262,6 +347,9 @@
         </div>
         <div class="room-actions">
           <button id="back-lobby-btn" class="btn btn-ghost" title="Leave room" data-i18n="room-leave-btn">Leave</button>
+          <button id="theme-toggle-btn" class="btn btn-ghost" title="Toggle Theme">🌗 Theme</button>
+          <button id="sound-toggle-btn" class="btn btn-ghost" title="Toggle Sound">🔊 Sound</button>
+          <button id="room-analytics-btn" class="btn btn-ghost" title="Room Analytics" hidden>📊 Stats</button>
           <button id="lang-toggle-btn" class="btn btn-ghost" title="Toggle Language">🌐 EN</button>
           <button id="speaker-btn" class="btn btn-ghost" title="Toggle speaker">&#128266; Speaker</button>
           <button id="mic-btn" class="btn btn-ghost" title="Toggle microphone">&#127908; Mic</button>
@@ -345,6 +433,11 @@
           </div>
 
           <div id="tab-chat" class="tab-content active-tab">
+            <div id="pinned-message-container" class="pinned-message-container" style="display: none; background: rgba(0, 240, 255, 0.08); border-bottom: 1px solid var(--border); padding: 8px 12px; font-size: 13px; align-items: center; justify-content: space-between; gap: 8px;">
+              <span class="pinned-message-icon" style="color: var(--primary);">📌</span>
+              <span id="pinned-message-text" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
+              <button id="unpin-message-btn" class="btn btn-ghost btn-sm" style="padding: 2px 6px; min-height: 20px; font-size: 10px;">&times;</button>
+            </div>
             <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
             <div id="emoji-picker" class="picker-panel" hidden>
               <div class="picker-tabs" id="emoji-tabs"></div>
@@ -368,6 +461,7 @@
               <input id="chat-input" type="text" placeholder="Send a message" data-i18n="chat-placeholder" maxlength="1000" autocomplete="off" />
               <button type="submit" class="btn btn-primary" data-i18n="chat-send">Send</button>
             </form>
+            <div id="slow-mode-cooldown" class="slow-mode-cooldown" style="display: none; text-align: center; font-size: 11px; color: var(--warning); margin-top: 4px;"></div>
             <div id="muted-notice" class="muted-notice" hidden>You are muted and cannot send messages.</div>
           </div>
 
@@ -376,8 +470,15 @@
           </div>
 
           <div id="tab-queue" class="tab-content" hidden>
+            <form id="queue-form" class="suggest-form" style="margin-bottom: 12px;" hidden>
+              <input id="queue-url" type="url" placeholder="Add video URL directly to queue" />
+              <button type="submit" class="btn btn-primary">Add Queue</button>
+            </form>
             <div class="queue-section">
-              <div class="queue-header" data-i18n="queue-up-next">Up Next</div>
+              <div class="queue-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span data-i18n="queue-up-next">Up Next</span>
+                <button id="queue-next-btn" class="btn btn-primary btn-sm" style="display: none;">▶ Play Next</button>
+              </div>
               <div id="queue-list" class="queue-list"></div>
             </div>
             <div class="queue-section" id="suggestions-section">

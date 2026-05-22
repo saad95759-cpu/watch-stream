@@ -178,8 +178,98 @@ function dismissToast(toast) {
 
 let isSuperAdmin = false;
 let publicRoomsInterval = null;
-const myName = safeGet("wp-name") || "Guest";
+let myName = safeGet("wp-name") || "Guest";
+let myAvatar = safeGet("wp-avatar") || "👤";
 let roomHistoryList = []; // Global: shared between initRoom() and getLocalHistory()
+
+// ===== Sound Effects (Web Audio API Synthesizer) =====
+const SoundEffects = {
+  ctx: null,
+  enabled: safeGet("wp-sounds-enabled") !== "false",
+  init() {
+    if (!this.ctx) {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+  },
+  play(type) {
+    if (!this.enabled) return;
+    try {
+      this.init();
+      const ctx = this.ctx;
+      if (ctx.state === "suspended") {
+        ctx.resume();
+      }
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      const now = ctx.currentTime;
+      
+      if (type === "msg") {
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(587.33, now); // D5
+        osc.frequency.exponentialRampToValueAtTime(880.00, now + 0.1); // A5
+        gain.gain.setValueAtTime(0.04, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+        osc.start(now);
+        osc.stop(now + 0.15);
+      } else if (type === "join") {
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(523.25, now); // C5
+        osc.frequency.setValueAtTime(659.25, now + 0.08); // E5
+        osc.frequency.setValueAtTime(783.99, now + 0.16); // G5
+        gain.gain.setValueAtTime(0.04, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+        osc.start(now);
+        osc.stop(now + 0.35);
+      } else if (type === "leave") {
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(783.99, now); // G5
+        osc.frequency.setValueAtTime(659.25, now + 0.08); // E5
+        osc.frequency.setValueAtTime(523.25, now + 0.16); // C5
+        gain.gain.setValueAtTime(0.04, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+        osc.start(now);
+        osc.stop(now + 0.35);
+      } else if (type === "alert") {
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(440.00, now); // A4
+        osc.frequency.setValueAtTime(349.23, now + 0.12); // F4
+        gain.gain.setValueAtTime(0.05, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+        osc.start(now);
+        osc.stop(now + 0.25);
+      }
+    } catch (e) {
+      console.warn("Sound playback failed:", e);
+    }
+  },
+  toggle() {
+    this.enabled = !this.enabled;
+    safeSet("wp-sounds-enabled", this.enabled ? "true" : "false");
+    return this.enabled;
+  }
+};
+
+// Theme Helper
+const storedTheme = safeGet("wp-theme") || "dark";
+if (storedTheme === "light") {
+  document.body.classList.add("light-theme");
+} else {
+  document.body.classList.remove("light-theme");
+}
+
+function setupThemeToggle(btnId) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    const isLight = document.body.classList.toggle("light-theme");
+    safeSet("wp-theme", isLight ? "light" : "dark");
+    btn.textContent = isLight ? "☀️" : "🌙";
+  });
+  const isLight = document.body.classList.contains("light-theme");
+  btn.textContent = isLight ? "☀️" : "🌙";
+}
 
 const socket = io({ path: `${BASE}socket.io` });
 
@@ -277,6 +367,56 @@ socket.on("connect", () => {
   }
 });
 
+function setupAvatarPicker(pickerSelector, previewSelector, uploadInputId) {
+  const container = document.querySelector(pickerSelector);
+  if (!container) return;
+  
+  const previewEl = previewSelector ? document.querySelector(previewSelector) : null;
+  const updatePreview = (val) => {
+    if (!previewEl) return;
+    if (val.startsWith("data:image/")) {
+      previewEl.textContent = '';
+      previewEl.style.backgroundImage = `url(${val})`;
+      previewEl.style.backgroundSize = 'cover';
+      previewEl.style.backgroundPosition = 'center';
+    } else {
+      previewEl.textContent = val;
+      previewEl.style.backgroundImage = '';
+    }
+  };
+
+  const storedAvatar = safeGet("wp-avatar") || "👤";
+  updatePreview(storedAvatar);
+  
+  // Highlight active preset
+  container.querySelectorAll(".avatar-preset").forEach(el => {
+    const val = el.dataset.emoji || el.textContent.trim();
+    if (val === storedAvatar) el.classList.add("active");
+    
+    el.addEventListener("click", () => {
+      container.querySelectorAll(".avatar-preset").forEach(x => x.classList.remove("active"));
+      el.classList.add("active");
+      myAvatar = val;
+      safeSet("wp-avatar", myAvatar);
+      updatePreview(myAvatar);
+    });
+  });
+  
+  const uploadInput = document.getElementById(uploadInputId);
+  if (uploadInput) {
+    uploadInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      resizeImage(file, 96, (dataUrl) => {
+        myAvatar = dataUrl;
+        safeSet("wp-avatar", myAvatar);
+        updatePreview(myAvatar);
+        container.querySelectorAll(".avatar-preset").forEach(x => x.classList.remove("active"));
+      });
+    });
+  }
+}
+
 if (!ROOM_ID) {
   showView("lobby");
   initLobby();
@@ -297,6 +437,8 @@ function showNameGate(roomId) {
   const btn = document.getElementById("name-gate-submit");
   if (modal) modal.hidden = false;
   if (input) input.focus();
+  
+  setupAvatarPicker(".gate-preset-picker", "", null);
 
   function doJoin() {
     const name = input.value.trim();
@@ -317,6 +459,9 @@ function showNameGate(roomId) {
 }
 
 function initLobby() {
+  setupThemeToggle("lobby-theme-toggle");
+  setupAvatarPicker(".lobby-preset-picker", ".avatar-preview-circle", "avatar-file-input");
+
   const nameInput = document.getElementById("lobby-name");
   nameInput.value = safeGet("wp-name") || "";
   const createBtn = document.getElementById("create-room-btn");
@@ -808,6 +953,10 @@ function initRoom(roomId) {
   let requireApproval = false;
   let roomIsPublic = false;
   let lastPassword = null;
+  
+  let localSlowModeDelay = 0;
+  let slowModeInterval = null;
+  let lastSentTime = 0;
 
   let playerKind = null;
   const mp4El = document.getElementById("mp4-player");
@@ -880,6 +1029,9 @@ function initRoom(roomId) {
     const settingsBtn = document.getElementById("room-settings-btn");
     if (settingsBtn) settingsBtn.hidden = !(myRole === "host" || myRole === "admin" || isSuperAdmin);
 
+    const analyticsBtn = document.getElementById("room-analytics-btn");
+    if (analyticsBtn) analyticsBtn.hidden = !canIModerate();
+
     const pendingTabBtn = document.querySelector('.panel-tab[data-tab="pending"]');
     if (pendingTabBtn) pendingTabBtn.hidden = !(myRole === "host" || myRole === "admin" || isSuperAdmin);
 
@@ -913,6 +1065,17 @@ function initRoom(roomId) {
     participantList.forEach((p) => {
       const item = document.createElement("div");
       item.className = "user-item";
+
+      const avatarEl = document.createElement("span");
+      avatarEl.className = "user-item-avatar";
+      if (p.avatar && p.avatar.startsWith("data:image/")) {
+        avatarEl.style.backgroundImage = `url(${p.avatar})`;
+        avatarEl.style.backgroundSize = "cover";
+        avatarEl.style.backgroundPosition = "center";
+      } else {
+        avatarEl.textContent = p.avatar || "👤";
+      }
+      item.appendChild(avatarEl);
 
       const nameSpan = document.createElement("span");
       nameSpan.className = "user-name" + (p.id === myId ? " user-you" : "");
@@ -1271,7 +1434,8 @@ function initRoom(roomId) {
       password: lastPassword || undefined,
       hostKey: storedHostKey || undefined,
       clientId: getClientId(),
-      gps
+      gps,
+      avatar: myAvatar
     });
   });
 
@@ -1296,6 +1460,9 @@ function initRoom(roomId) {
 
     roomHistoryList = state.history || [];
     renderLocalHistory();
+
+    localSlowModeDelay = state.slowModeDelay || 0;
+    renderPinnedMessage(state.pinnedMessage);
 
     updateRoleUI();
     renderUserList();
@@ -1366,6 +1533,8 @@ function initRoom(roomId) {
     if (at) at.checked = requireApproval;
     const pt = document.getElementById("public-toggle");
     if (pt) pt.checked = !!roomIsPublic;
+    const sms = document.getElementById("slow-mode-select");
+    if (sms) sms.value = String(localSlowModeDelay);
     if (m) m.hidden = false;
   });
   document.getElementById("room-settings-close")?.addEventListener("click", () => {
@@ -1377,6 +1546,9 @@ function initRoom(roomId) {
   });
   document.getElementById("public-toggle")?.addEventListener("change", (e) => {
     socket.emit("set-room-public", { enabled: !!e.target.checked });
+  });
+  document.getElementById("slow-mode-select")?.addEventListener("change", (e) => {
+    socket.emit("set-slow-mode", { delay: parseInt(e.target.value) || 0 });
   });
 
   socket.on("public-mode-updated", ({ isPublic }) => {
@@ -1418,7 +1590,7 @@ function initRoom(roomId) {
     lastPassword = pw;
     const storedHostKey = sessGet("wp-host-key-" + roomId);
     const gps = currentGpsData || { status: 'unknown' };
-    socket.emit("join", { roomId, name: myName, password: pw, hostKey: storedHostKey || undefined, clientId: getClientId(), gps });
+    socket.emit("join", { roomId, name: myName, password: pw, hostKey: storedHostKey || undefined, clientId: getClientId(), gps, avatar: myAvatar });
   });
   document.getElementById("password-cancel").addEventListener("click", () => {
     passwordModalEl.hidden = true;
@@ -1431,13 +1603,16 @@ function initRoom(roomId) {
     }
   });
 
-  socket.on("room-update", ({ roomHostId: newHostId, participants, votes, queue, suggestions, history }) => {
+  socket.on("room-update", ({ roomHostId: newHostId, participants, votes, queue, suggestions, history, pinnedMessage, slowModeDelay }) => {
     roomHostId = newHostId;
     participantList = participants || [];
     voteList = votes || [];
     queueList = queue || [];
     suggestionsList = suggestions || [];
     roomHistoryList = history || [];
+
+    localSlowModeDelay = slowModeDelay || 0;
+    renderPinnedMessage(pinnedMessage);
 
     const me = participantList.find((p) => p.id === myId);
     if (me) {
@@ -1495,11 +1670,57 @@ function initRoom(roomId) {
   });
 
   const chatMessagesEl = document.getElementById("chat-messages");
+  
+  function startSlowModeCountdown() {
+    const input = document.getElementById("chat-input");
+    const button = document.querySelector("#chat-form button[type='submit']");
+    const cooldownEl = document.getElementById("slow-mode-cooldown");
+    if (!cooldownEl || !input || !button) return;
+    
+    let remaining = localSlowModeDelay;
+    input.disabled = true;
+    button.disabled = true;
+    cooldownEl.hidden = false;
+    
+    if (slowModeInterval) clearInterval(slowModeInterval);
+    
+    const updateUi = () => {
+      cooldownEl.textContent = `Slow mode: wait ${remaining}s`;
+    };
+    updateUi();
+    
+    slowModeInterval = setInterval(() => {
+      remaining--;
+      if (remaining <= 0) {
+        clearInterval(slowModeInterval);
+        slowModeInterval = null;
+        input.disabled = false;
+        button.disabled = false;
+        cooldownEl.hidden = true;
+        input.focus();
+      } else {
+        updateUi();
+      }
+    }, 1000);
+  }
+
   document.getElementById("chat-form").addEventListener("submit", (e) => {
     e.preventDefault();
     const input = document.getElementById("chat-input");
     const text = input.value;
     if (!text.trim()) return;
+
+    if (localSlowModeDelay > 0 && !canIModerate()) {
+      const now = Date.now();
+      const elapsed = (now - lastSentTime) / 1000;
+      if (elapsed < localSlowModeDelay) {
+        showToast("Slow mode is active. Please wait.", "warning");
+        return;
+      }
+      lastSentTime = now;
+      startSlowModeCountdown();
+    }
+
     socket.emit("chat", { text });
     input.value = "";
   });
@@ -1509,6 +1730,9 @@ function initRoom(roomId) {
     if (msg.from !== myId && !document.body.classList.contains("chat-open") && window.innerWidth <= 720) {
       bumpChatBadge();
     }
+    if (msg.from !== myId) {
+      SoundEffects.play("msg");
+    }
   });
 
   socket.on("chat-history", (logs) => {
@@ -1516,15 +1740,27 @@ function initRoom(roomId) {
     if (chatMessages) chatMessages.innerHTML = "";
     for (const log of logs) {
       if (log.type === "chat") {
-        appendMessage({ from: null, name: log.name, role: log.role, text: log.text, stickerUrl: log.stickerUrl, type: log.stickerUrl ? "sticker" : "chat" }, false);
+        appendMessage({ from: null, name: log.name, role: log.role, text: log.text, stickerUrl: log.stickerUrl, type: log.stickerUrl ? "sticker" : "chat", avatar: log.avatar }, false);
       } else if (log.type === "system") {
         appendSystemMessage(log.text);
       }
     }
   });
 
-  socket.on("chat-blocked", () => {
-    flashStatus("You are muted and cannot send messages.", "error");
+  socket.on("chat-blocked", ({ reason }) => {
+    flashStatus(reason || "You are muted and cannot send messages.", "error");
+    SoundEffects.play("alert");
+
+    if (slowModeInterval) {
+      clearInterval(slowModeInterval);
+      slowModeInterval = null;
+    }
+    const input = document.getElementById("chat-input");
+    const button = document.querySelector("#chat-form button[type='submit']");
+    const cooldownEl = document.getElementById("slow-mode-cooldown");
+    if (input) input.disabled = false;
+    if (button) button.disabled = false;
+    if (cooldownEl) cooldownEl.hidden = true;
   });
 
   socket.on("room-ended", () => {
@@ -1545,14 +1781,16 @@ function initRoom(roomId) {
     appendSystemMessage(text);
   });
 
-  socket.on("user-joined", ({ id, name }) => {
+  socket.on("user-joined", ({ id, name, avatar }) => {
     appendSystemMessage(`${name} joined`);
+    SoundEffects.play("join");
     if (id && id !== myId && voipActive) {
       createVoipOffer(id);
     }
   });
   socket.on("user-left", ({ id }) => {
     appendSystemMessage("Someone left");
+    SoundEffects.play("leave");
     if (id) {
       activeSpeakers.delete(id);
       const pc = voipPeers.get(id);
@@ -3151,30 +3389,76 @@ function initRoom(roomId) {
 
   function appendMessage(msg, mine) {
     const el = document.createElement("div");
+    el.className = "msg" + (msg.type === "sticker" ? " msg-sticker" : "") + (mine ? " msg-mine" : "");
+    el.style.display = "flex";
+    el.style.gap = "8px";
+    el.style.alignItems = "flex-start";
+
+    const av = document.createElement("span");
+    av.className = "chat-msg-avatar";
+    av.style.flexShrink = "0";
+    if (msg.avatar && msg.avatar.startsWith("data:image/")) {
+      av.style.backgroundImage = `url(${msg.avatar})`;
+      av.style.backgroundSize = "cover";
+      av.style.backgroundPosition = "center";
+    } else {
+      av.textContent = msg.avatar || "👤";
+    }
+    el.appendChild(av);
+
+    const contentDiv = document.createElement("div");
+    contentDiv.className = "msg-content";
+    contentDiv.style.flex = "1";
+    contentDiv.style.minWidth = "0";
+
+    const nm = document.createElement("div");
+    nm.className = "msg-name";
+    nm.style.display = "flex";
+    nm.style.alignItems = "center";
+    nm.style.justifyContent = "space-between";
+    nm.style.gap = "8px";
+    
+    const nameText = document.createElement("span");
+    nameText.textContent = msg.name;
+    nm.appendChild(nameText);
+    
+    if (canIModerate() && msg.type !== "sticker") {
+      const pinBtn = document.createElement("button");
+      pinBtn.className = "btn-pin-message";
+      pinBtn.textContent = "📌";
+      pinBtn.style.background = "none";
+      pinBtn.style.border = "none";
+      pinBtn.style.cursor = "pointer";
+      pinBtn.style.padding = "0";
+      pinBtn.style.fontSize = "12px";
+      pinBtn.style.opacity = "0.6";
+      pinBtn.style.transition = "opacity 0.2s";
+      pinBtn.title = "Pin this message";
+      pinBtn.addEventListener("mouseenter", () => pinBtn.style.opacity = "1");
+      pinBtn.addEventListener("mouseleave", () => pinBtn.style.opacity = "0.6");
+      pinBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        socket.emit("pin-message", { messageId: msg.id || Math.random().toString(36).substring(2), text: msg.text, name: msg.name });
+      });
+      nm.appendChild(pinBtn);
+    }
+    contentDiv.appendChild(nm);
+
     if (msg.type === "sticker") {
-      el.className = "msg msg-sticker" + (mine ? " msg-mine" : "");
-      const nm = document.createElement("div");
-      nm.className = "msg-name";
-      nm.textContent = msg.name;
-      el.appendChild(nm);
       if (msg.stickerUrl) {
         const im = document.createElement("img");
         im.className = "msg-sticker-img";
         im.src = msg.stickerUrl;
         im.alt = "Sticker";
-        el.appendChild(im);
+        contentDiv.appendChild(im);
       }
     } else {
-      el.className = "msg" + (mine ? " msg-mine" : "");
-      const nm = document.createElement("div");
-      nm.className = "msg-name";
-      nm.textContent = msg.name;
       const body = document.createElement("div");
       body.className = "msg-text";
       body.textContent = msg.text;
-      el.appendChild(nm);
-      el.appendChild(body);
+      contentDiv.appendChild(body);
     }
+    el.appendChild(contentDiv);
     chatMessagesEl.appendChild(el);
     chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
   }
@@ -3198,6 +3482,104 @@ function initRoom(roomId) {
     badgeCount = 0;
     badgeEl.hidden = true;
   }
+
+  // Pinned message rendering
+  function renderPinnedMessage(pinned) {
+    const container = document.getElementById("pinned-message-container");
+    const textEl = document.getElementById("pinned-message-text");
+    const unpinBtn = document.getElementById("unpin-message-btn");
+    
+    if (!container || !textEl) return;
+    
+    if (pinned && pinned.text) {
+      textEl.textContent = `${pinned.name}: ${pinned.text} (pinned by ${pinned.pinnedBy || 'admin'})`;
+      container.style.display = "flex";
+      if (unpinBtn) {
+        unpinBtn.hidden = !canIModerate();
+      }
+    } else {
+      container.style.display = "none";
+    }
+  }
+
+  // Pinned message events
+  socket.on("message-pinned", (pinnedMessage) => {
+    renderPinnedMessage(pinnedMessage);
+  });
+  socket.on("message-unpinned", () => {
+    renderPinnedMessage(null);
+  });
+  document.getElementById("unpin-message-btn")?.addEventListener("click", () => {
+    socket.emit("unpin-message");
+  });
+
+  // Slow mode update
+  socket.on("slow-mode-updated", ({ delay }) => {
+    localSlowModeDelay = delay || 0;
+    const sms = document.getElementById("slow-mode-select");
+    if (sms) sms.value = String(localSlowModeDelay);
+    
+    if (localSlowModeDelay === 0) {
+      if (slowModeInterval) {
+        clearInterval(slowModeInterval);
+        slowModeInterval = null;
+      }
+      const input = document.getElementById("chat-input");
+      const button = document.querySelector("#chat-form button[type='submit']");
+      const cooldownEl = document.getElementById("slow-mode-cooldown");
+      if (input) input.disabled = false;
+      if (button) button.disabled = false;
+      if (cooldownEl) cooldownEl.hidden = true;
+    }
+  });
+
+  // Playlist Queue submit & Next button listeners
+  document.getElementById("queue-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const input = document.getElementById("queue-url");
+    const url = input.value.trim();
+    if (!url) return;
+    socket.emit("queue-add", { url });
+    input.value = "";
+  });
+  document.getElementById("queue-next-btn")?.addEventListener("click", () => {
+    socket.emit("queue-next");
+  });
+
+  // Room analytics modal logic
+  document.getElementById("room-analytics-btn")?.addEventListener("click", () => {
+    socket.emit("request-analytics");
+  });
+  socket.on("analytics-update", (data) => {
+    const modal = document.getElementById("analytics-modal");
+    if (!modal) return;
+    document.getElementById("stat-peak-viewers").textContent = String(data.peakViewers || 0);
+    document.getElementById("stat-total-messages").textContent = String(data.totalMessages || 0);
+    document.getElementById("stat-total-reactions").textContent = String(data.totalReactions || 0);
+    document.getElementById("stat-session-duration").textContent = `${data.sessionDurationMin || 0} min`;
+    document.getElementById("stat-current-video").textContent = data.currentlyPlaying || "None";
+    modal.hidden = false;
+  });
+  document.getElementById("analytics-close-btn")?.addEventListener("click", () => {
+    const modal = document.getElementById("analytics-modal");
+    if (modal) modal.hidden = true;
+  });
+
+  // Theme Toggle (Room page) & Sound notifications setup
+  setupThemeToggle("theme-toggle-btn");
+  const soundToggleBtn = document.getElementById("sound-toggle-btn");
+  if (soundToggleBtn) {
+    const updateSoundBtn = () => {
+      soundToggleBtn.textContent = SoundEffects.enabled ? "🔔" : "🔕";
+      soundToggleBtn.title = SoundEffects.enabled ? "Mute chimes" : "Unmute chimes";
+    };
+    updateSoundBtn();
+    soundToggleBtn.addEventListener("click", () => {
+      SoundEffects.toggle();
+      updateSoundBtn();
+    });
+  }
+
   // Expose scoped helpers to global scope for renderQueueAndSuggestions etc.
   window._wpCanIControl = canIControl;
   window._wpSocket = socket;

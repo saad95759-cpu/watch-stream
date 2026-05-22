@@ -1108,6 +1108,9 @@ function getOrCreateRoom(id) {
       isPublic: false,
       pending: new Map(),
       approvedClientIds: new Set(),
+      pinnedMessage: null,
+      slowModeDelay: 0,
+      analytics: { totalMessages: 0, totalReactions: 0, peakViewers: 0, sessionStart: Date.now() },
     };
     rooms.set(id, room);
   }
@@ -1201,11 +1204,15 @@ function buildParticipantList(room, includeSuperAdmins = true) {
       const sock = io.sockets.sockets.get(id);
       return !(sock && sock.isSuperAdmin);
     })
-    .map(([id, name]) => ({
-      id,
-      name,
-      role: getUserRole(id, room),
-    }));
+    .map(([id, name]) => {
+      const sock = io.sockets.sockets.get(id);
+      return {
+        id,
+        name,
+        role: getUserRole(id, room),
+        avatar: sock ? sock.userAvatar || "👤" : "👤",
+      };
+    });
 }
 
 function serializeVotes(votes) {
@@ -1311,6 +1318,8 @@ async function finalizeJoinOther(targetSocket, roomId, room, hostKey) {
     myRole,
     isSuperAdmin: targetSocket.isSuperAdmin,
     hostKey: assignedHostKey || undefined,
+    pinnedMessage: room.pinnedMessage || null,
+    slowModeDelay: room.slowModeDelay || 0,
   });
 
   if (!targetSocket.isSuperAdmin) {
@@ -1318,6 +1327,7 @@ async function finalizeJoinOther(targetSocket, roomId, room, hostKey) {
       id: targetSocket.id,
       name: targetSocket.userName,
       role: myRole,
+      avatar: targetSocket.userAvatar || "👤",
     });
   }
   
@@ -1343,6 +1353,14 @@ async function finalizeJoinOther(targetSocket, roomId, room, hostKey) {
 function broadcastRoomUpdate(roomId) {
   const room = rooms.get(roomId);
   if (!room) return;
+
+  if (room.analytics) {
+    const currentCount = room.participants.size;
+    if (currentCount > (room.analytics.peakViewers || 0)) {
+      room.analytics.peakViewers = currentCount;
+    }
+  }
+
   const publicList = buildParticipantList(room, false);
   const fullList = buildParticipantList(room, true);
   const votes = serializeVotes(room.votes);
@@ -1356,6 +1374,8 @@ function broadcastRoomUpdate(roomId) {
       queue: room.queue,
       suggestions: room.suggestions,
       history: room.history,
+      pinnedMessage: room.pinnedMessage || null,
+      slowModeDelay: room.slowModeDelay || 0,
     });
   }
 }
@@ -1668,10 +1688,18 @@ io.on("connection", (socket) => {
     socket.emit("admin-room-history-result", { history: room ? room.history : [] });
   });
 
-  socket.on("join", async ({ roomId, name, password, token, hostKey, clientId, gps }) => {
+  socket.on("join", async ({ roomId, name, password, token, hostKey, clientId, gps, avatar }) => {
     if (typeof roomId !== "string" || !roomId) return;
     leaveCurrentRoom();
     socket.gps = gps;
+
+    let cleanedAvatar = "👤";
+    if (typeof avatar === "string") {
+      if (avatar.length < 65000) {
+        cleanedAvatar = avatar;
+      }
+    }
+    socket.userAvatar = cleanedAvatar;
 
     let room = rooms.get(roomId);
     if (!room) {
@@ -1839,6 +1867,10 @@ io.on("connection", (socket) => {
     const rid = socket.currentRoomId;
     console.log("[SERVER] reaction received", emoji, "rid:", rid, "user:", socket.userName);
     if (!rid) return;
+    const room = rooms.get(rid);
+    if (room && room.analytics) {
+      room.analytics.totalReactions = (room.analytics.totalReactions || 0) + 1;
+    }
     io.to(rid).emit("reaction", { emoji, from: socket.userName });
   });
 
@@ -1926,6 +1958,98 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("queue-add", ({ url, title, thumbnail }) => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    if (!canControlPlayback(socket, ctx.room)) return;
+    if (typeof url !== "string" || !url) return;
+    
+    const item = {
+      id: crypto.randomBytes(4).toString("hex"),
+      url,
+      title: title || "Queued video",
+      thumbnail: thumbnail || null,
+      addedBy: socket.id,
+      addedByName: socket.userName,
+      timestamp: Date.now()
+    };
+    ctx.room.queue.push(item);
+    broadcastRoomUpdate(ctx.rid);
+    
+    appendRoomLog(ctx.rid, {
+      id: crypto.randomBytes(6).toString("hex"),
+      type: "system",
+      text: `${socket.userName} added a video directly to queue`,
+      ts: Date.now()
+    });
+  });
+
+  socket.on("set-slow-mode", ({ delay }) => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    if (!canModerate(socket, ctx.room)) return;
+    const delayNum = Math.max(0, parseInt(delay) || 0);
+    ctx.room.slowModeDelay = delayNum;
+    
+    io.to(ctx.rid).emit("slow-mode-updated", { delay: delayNum });
+    
+    appendRoomLog(ctx.rid, {
+      id: crypto.randomBytes(6).toString("hex"),
+      type: "system",
+      text: `Chat slow mode set to ${delayNum ? delayNum + 's' : 'Disabled'}`,
+      ts: Date.now()
+    });
+  });
+
+  socket.on("pin-message", ({ messageId, text, name }) => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    if (!canModerate(socket, ctx.room)) return;
+    
+    const pinnedObj = {
+      messageId,
+      text: typeof text === "string" ? text.slice(0, 1000) : "",
+      name: typeof name === "string" ? name : "Guest",
+      pinnedBy: socket.userName
+    };
+    ctx.room.pinnedMessage = pinnedObj;
+    
+    io.to(ctx.rid).emit("message-pinned", pinnedObj);
+    
+    appendRoomLog(ctx.rid, {
+      id: crypto.randomBytes(6).toString("hex"),
+      type: "system",
+      text: `${socket.userName} pinned a message`,
+      ts: Date.now()
+    });
+  });
+
+  socket.on("unpin-message", () => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    if (!canModerate(socket, ctx.room)) return;
+    
+    ctx.room.pinnedMessage = null;
+    io.to(ctx.rid).emit("message-unpinned");
+  });
+
+  socket.on("request-analytics", () => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    if (!canModerate(socket, ctx.room)) return;
+    
+    const durationMs = Date.now() - (ctx.room.analytics.sessionStart || Date.now());
+    const durationMin = Math.round(durationMs / 60000);
+    
+    socket.emit("analytics-update", {
+      peakViewers: ctx.room.analytics.peakViewers || 0,
+      totalMessages: ctx.room.analytics.totalMessages || 0,
+      totalReactions: ctx.room.analytics.totalReactions || 0,
+      sessionDurationMin: durationMin,
+      currentlyPlaying: ctx.room.title || ctx.room.source || "None"
+    });
+  });
+
   socket.on("play", ({ time }) => {
     const ctx = requireMember();
     if (!ctx) return;
@@ -1977,6 +2101,21 @@ io.on("connection", (socket) => {
       return;
     }
     const type = data && data.type === "sticker" ? "sticker" : "text";
+    if (ctx.room.slowModeDelay > 0 && !canModerate(socket, ctx.room)) {
+      const now = Date.now();
+      const lastMsgTime = socket.lastMessageAt || 0;
+      const elapsed = (now - lastMsgTime) / 1000;
+      if (elapsed < ctx.room.slowModeDelay) {
+        socket.emit("chat-blocked", { reason: `Slow mode active. Wait ${Math.ceil(ctx.room.slowModeDelay - elapsed)}s.` });
+        return;
+      }
+      socket.lastMessageAt = now;
+    }
+
+    if (ctx.room.analytics) {
+      ctx.room.analytics.totalMessages = (ctx.room.analytics.totalMessages || 0) + 1;
+    }
+
     if (type === "sticker") {
       if (typeof data.stickerUrl !== "string" || !data.stickerUrl) return;
       if (data.stickerUrl.length > 150000) return;
@@ -1992,6 +2131,7 @@ io.on("connection", (socket) => {
         from: socket.id,
         name: socket.userName,
         type: "sticker",
+        avatar: socket.userAvatar || "👤",
         stickerUrl: data.stickerUrl,
         ts: Date.now(),
       };
@@ -2006,6 +2146,7 @@ io.on("connection", (socket) => {
         from: socket.id,
         name: socket.userName,
         type: "text",
+        avatar: socket.userAvatar || "👤",
         text: trimmed.slice(0, 1000),
         ts: Date.now(),
       };
