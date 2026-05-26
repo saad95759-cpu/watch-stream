@@ -225,7 +225,9 @@ const BROWSER_EXTRACT_MAX_CONCURRENT = 1;
 
 function browserExtract(url) {
   if (__browserExtractInFlight >= BROWSER_EXTRACT_MAX_CONCURRENT) {
-    return Promise.reject(new Error("Browser extractor is busy, try again in a few seconds."));
+    const busyErr = new Error("Browser extractor is busy — another extraction is in progress. Try again in a few seconds.");
+    busyErr.code = "EXTRACTOR_BUSY";
+    return Promise.reject(busyErr);
   }
   __browserExtractInFlight += 1;
   return new Promise((resolve, reject) => {
@@ -236,18 +238,24 @@ function browserExtract(url) {
       (err, stdout) => {
         const line = String(stdout || "").split("\n").find((l) => l.trim().startsWith("{"));
         if (!line) {
-          reject(new Error(err?.message || "Browser extractor produced no output"));
+          const noOutputErr = new Error(err?.message || "Browser extractor produced no output");
+          noOutputErr.code = "EXTRACTOR_NO_OUTPUT";
+          reject(noOutputErr);
           return;
         }
         try {
           const parsed = JSON.parse(line);
           if (parsed.error && !parsed.streamUrl) {
-            reject(new Error(parsed.error));
+            const e = new Error(parsed.error);
+            e.code = "EXTRACTOR_FAILED";
+            reject(e);
             return;
           }
           resolve(parsed);
         } catch {
-          reject(new Error("Failed to parse browser extractor output"));
+          const parseErr = new Error("Failed to parse browser extractor output");
+          parseErr.code = "EXTRACTOR_PARSE_ERROR";
+          reject(parseErr);
         }
       },
     );
@@ -603,15 +611,26 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
     res.json(data);
   } catch (e) {
     let msg = String(e?.message || "Extraction failed");
+    let code = e?.code || "EXTRACTION_FAILED";
+    // Busy extractor → 429
+    if (e?.code === "EXTRACTOR_BUSY") {
+      return res.status(429).json({ error: msg, code });
+    }
+    // DRM content → 200 with drm flag so client can show share-tab prompt
     if (/drm|widevine|fairplay|playready/i.test(msg)) {
-      return res.status(200).json({ drm: true, error: "DRM-protected content is not supported." });
+      return res.status(200).json({ drm: true, code: "DRM_PROTECTED", error: "This content is DRM-protected. Use \"Share Browser Tab\" to stream it instead." });
     }
     if (/timeout|aborted/i.test(msg)) {
-      msg = "The extraction request timed out. The website is taking too long to load or blocking our server request.";
+      code = "EXTRACTION_TIMEOUT";
+      msg = "The extraction request timed out. The website is slow or blocking our server. Try a direct .m3u8/.mp4 URL instead.";
     } else if (/Unable to extract|unsupported url/i.test(msg)) {
-      msg = "This site's video format isn't supported right now (the page structure recently changed and the extractor cannot find the stream). Try a direct .mp4/.m3u8 URL instead.";
+      code = "UNSUPPORTED_URL";
+      msg = "This site's video format isn't supported. The extractor can't find the stream — try a direct .mp4/.m3u8 URL instead.";
+    } else if (/No video stream detected/i.test(msg)) {
+      code = "NO_STREAM_FOUND";
+      msg = "No video stream was detected on the page. The stream may require authentication or be geo-restricted.";
     }
-    res.status(422).json({ error: msg });
+    res.status(422).json({ error: msg, code });
   }
 });
 
@@ -932,9 +951,12 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
   } catch (ytErr) {
     const msg = String(ytErr?.message || "");
     if (/drm|widevine|fairplay|playready/i.test(msg)) {
-      return res.status(200).json({ drm: true, streams: [], error: "DRM-protected — use Share Browser Tab instead." });
+      return res.status(200).json({ drm: true, streams: [], code: "DRM_PROTECTED", error: "This content is DRM-protected. Use \"Share Browser Tab\" to stream it instead." });
     }
-    return res.status(422).json({ streams: [], error: `Could not find streams: ${msg.slice(0, 200)}` });
+    if (/timeout|aborted/i.test(msg)) {
+      return res.status(422).json({ streams: [], code: "EXTRACTION_TIMEOUT", error: "The extraction request timed out. Try a direct .m3u8/.mp4 URL instead." });
+    }
+    return res.status(422).json({ streams: [], code: "EXTRACTION_FAILED", error: `Could not find streams: ${msg.slice(0, 200)}` });
   }
 });
 

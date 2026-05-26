@@ -80,7 +80,11 @@ process.on("SIGINT", () => __cleanupAndExit(0));
         "--mute-audio",
         "--disable-gpu",
         "--disable-software-rasterizer",
-        "--js-flags=--max-old-space-size=256"
+        "--disable-extensions",
+        "--disable-background-networking",
+        "--disable-default-apps",
+        "--no-first-run",
+        "--js-flags=--max-old-space-size=256",
       ],
     });
     __browserRef = browser;
@@ -90,6 +94,8 @@ process.on("SIGINT", () => __cleanupAndExit(0));
       viewport: { width: 1280, height: 720 },
       locale: "en-US",
       extraHTTPHeaders: { "accept-language": "en-US,en;q=0.9" },
+      // Do not store any cookies/localStorage between requests
+      storageState: undefined,
     });
 
     // Pre-set common age-gate cookies so consent walls don't block playback.
@@ -157,7 +163,7 @@ process.on("SIGINT", () => __cleanupAndExit(0));
         return route.abort();
       }
       
-      if (rt === "image" || rt === "font") return route.abort();
+      if (rt === "image" || rt === "font" || rt === "stylesheet") return route.abort();
       return route.continue();
     });
 
