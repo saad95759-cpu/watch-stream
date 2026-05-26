@@ -10,6 +10,8 @@
     "typecheck": "node -e \"console.log('no typecheck')\""
   },
   "dependencies": {
+    "@vitejs/plugin-react": "^6.0.2",
+    "esbuild": "^0.28.0",
     "express": "^5",
     "mongoose": "^9.6.2",
     "nodemailer": "^8.0.7",
@@ -17,11 +19,8 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.3"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^6.0.2",
-    "esbuild": "^0.28.0",
+    "socket.io-client": "^4.8.3",
     "vite": "^8.0.14"
-  }
+  },
+  "devDependencies": {}
 }
