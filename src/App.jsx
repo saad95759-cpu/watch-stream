@@ -1,13 +1,33 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import Lobby from './components/Lobby';
 import AdminDashboard from './components/AdminDashboard';
 import Room from './components/Room';
 import { useTranslation } from './hooks/useTranslation';
 
+// Global page transition spinner
+function PageSpinner() {
+  return (
+    <div className="page-spinner-overlay" aria-label="Loading…" role="status">
+      <div className="page-spinner-ring" />
+      <span className="page-spinner-label">Connecting…</span>
+    </div>
+  );
+}
+
 function App() {
   const { lang } = useTranslation();
-  const [currentView, setCurrentView] = useState('lobby');
+  const [currentView, setCurrentView] = useState('loading');
   const [activeRoomId, setActiveRoomId] = useState('');
+  const [transitioning, setTransitioning] = useState(false);
+
+  const switchView = useCallback((view, roomId = '') => {
+    setTransitioning(true);
+    setTimeout(() => {
+      setActiveRoomId(roomId);
+      setCurrentView(view);
+      setTransitioning(false);
+    }, 220);
+  }, []);
 
   // Initial client routing based on URL pathname
   useEffect(() => {
@@ -48,25 +68,25 @@ function App() {
   }, [lang]);
 
   const navigateToRoom = (roomId) => {
-    setActiveRoomId(roomId);
-    setCurrentView('room');
     window.history.pushState({}, '', `/watch-party/r/${roomId}`);
+    switchView('room', roomId);
   };
 
   const navigateToLobby = () => {
-    setActiveRoomId('');
-    setCurrentView('lobby');
     window.history.pushState({}, '', '/watch-party/');
+    switchView('lobby');
   };
 
   const navigateToAdmin = () => {
-    setCurrentView('admin');
     window.history.pushState({}, '', '/watch-party/admin');
+    switchView('admin');
   };
 
   return (
-    <div className="app-container">
-      {currentView === 'lobby' && (
+    <div className={`app-container${transitioning ? ' view-transitioning' : ''}`}>
+      {transitioning && <PageSpinner />}
+
+      {currentView === 'lobby' && !transitioning && (
         <Lobby
           onCreateRoom={navigateToRoom}
           onJoinRoom={navigateToRoom}
@@ -74,13 +94,15 @@ function App() {
         />
       )}
 
-      {currentView === 'admin' && (
+      {currentView === 'admin' && !transitioning && (
         <AdminDashboard onBack={navigateToLobby} />
       )}
 
-      {currentView === 'room' && (
+      {currentView === 'room' && !transitioning && (
         <Room roomId={activeRoomId} onLeave={navigateToLobby} />
       )}
+
+      {currentView === 'loading' && <PageSpinner />}
 
       <footer className="app-footer">Made By Saad H.</footer>
     </div>
