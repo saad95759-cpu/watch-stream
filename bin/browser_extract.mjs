@@ -18,8 +18,8 @@ if (!url) {
   process.exit(2);
 }
 
-const NAV_TIMEOUT = 25000;
-const SETTLE_MS = 6000;
+const NAV_TIMEOUT = 12000;
+const SETTLE_MS = 4000;
 
 // SSRF guard: block any sub-request the rendered page tries to make against
 // private / loopback / link-local / cloud-metadata addresses, even after
@@ -74,7 +74,14 @@ process.on("SIGINT", () => __cleanupAndExit(0));
   try {
     browser = await chromium.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-dev-shm-usage", "--mute-audio"],
+      args: [
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--mute-audio",
+        "--disable-gpu",
+        "--disable-software-rasterizer",
+        "--js-flags=--max-old-space-size=256"
+      ],
     });
     __browserRef = browser;
     const ctx = await browser.newContext({
@@ -222,7 +229,7 @@ process.on("SIGINT", () => __cleanupAndExit(0));
       process.stdout.write(
         JSON.stringify({ error: "No video stream detected on the page within timeout." }) + "\n",
       );
-      process.exit(0);
+      return;
     }
 
     process.stdout.write(
@@ -237,7 +244,6 @@ process.on("SIGINT", () => __cleanupAndExit(0));
       JSON.stringify({ error: `${e?.name || "Error"}: ${String(e?.message || e).slice(0, 240)}` }) +
         "\n",
     );
-    process.exit(0);
   } finally {
     try { await browser?.close(); } catch {}
   }

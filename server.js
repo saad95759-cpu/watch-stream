@@ -232,7 +232,7 @@ function browserExtract(url) {
     const child = execFile(
       "node",
       [BROWSER_EXTRACTOR, url],
-      { timeout: 60000, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024 },
+      { timeout: 20000, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024 },
       (err, stdout) => {
         const line = String(stdout || "").split("\n").find((l) => l.trim().startsWith("{"));
         if (!line) {
@@ -606,7 +606,9 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
     if (/drm|widevine|fairplay|playready/i.test(msg)) {
       return res.status(200).json({ drm: true, error: "DRM-protected content is not supported." });
     }
-    if (/Unable to extract|unsupported url/i.test(msg)) {
+    if (/timeout|aborted/i.test(msg)) {
+      msg = "The extraction request timed out. The website is taking too long to load or blocking our server request.";
+    } else if (/Unable to extract|unsupported url/i.test(msg)) {
       msg = "This site's video format isn't supported right now (the page structure recently changed and the extractor cannot find the stream). Try a direct .mp4/.m3u8 URL instead.";
     }
     res.status(422).json({ error: msg });

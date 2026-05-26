@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
-    "build": "node build.mjs",
+    "build": "vite build",
     "typecheck": "node -e \"console.log('no typecheck')\""
   },
   "dependencies": {
@@ -16,7 +16,8 @@
     "playwright": "^1.59.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.2",

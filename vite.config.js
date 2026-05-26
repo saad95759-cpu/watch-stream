@@ -1,13 +1,13 @@
 import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  // Build the vanilla public/ app — not the React src/ stub
-  root: path.resolve(__dirname, 'public'),
-
+  base: '/watch-party/',
+  plugins: [react()],
   build: {
     outDir: path.resolve(__dirname, 'dist'),
     emptyOutDir: true,
@@ -25,7 +25,7 @@ export default defineConfig({
     cssCodeSplit: true,
 
     rollupOptions: {
-      input: path.resolve(__dirname, 'public', 'index.html'),
+      input: path.resolve(__dirname, 'index.html'),
     },
   },
 
