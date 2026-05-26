@@ -262,14 +262,23 @@ if (storedTheme === "light") {
 function setupThemeToggle(btnId) {
   const btn = document.getElementById(btnId);
   if (!btn) return;
+  const updateLabel = () => {
+    const isLight = document.body.classList.contains("light-theme");
+    if (btn.classList.contains("dropdown-item")) {
+      btn.innerHTML = isLight ? "☀️ Light Theme" : "🌙 Dark Theme";
+    } else {
+      btn.innerHTML = isLight ? "☀️ Theme" : "🌙 Theme";
+    }
+  };
   btn.addEventListener("click", () => {
-    const isLight = document.body.classList.toggle("light-theme");
+    document.body.classList.toggle("light-theme");
+    const isLight = document.body.classList.contains("light-theme");
     safeSet("wp-theme", isLight ? "light" : "dark");
-    btn.textContent = isLight ? "☀️" : "🌙";
+    updateLabel();
   });
-  const isLight = document.body.classList.contains("light-theme");
-  btn.textContent = isLight ? "☀️" : "🌙";
+  updateLabel();
 }
+
 
 const socket = io({ path: `${BASE}socket.io` });
 
@@ -3611,13 +3620,33 @@ function initRoom(roomId) {
   const soundToggleBtn = document.getElementById("sound-toggle-btn");
   if (soundToggleBtn) {
     const updateSoundBtn = () => {
-      soundToggleBtn.textContent = SoundEffects.enabled ? "🔔" : "🔕";
+      soundToggleBtn.innerHTML = SoundEffects.enabled ? "🔔 Sound" : "🔕 Muted";
       soundToggleBtn.title = SoundEffects.enabled ? "Mute chimes" : "Unmute chimes";
     };
     updateSoundBtn();
     soundToggleBtn.addEventListener("click", () => {
       SoundEffects.toggle();
       updateSoundBtn();
+    });
+  }
+
+  // Room Header options dropdown toggle logic
+  const dropdownBtn = document.getElementById("room-options-dropdown-btn");
+  const dropdownMenu = document.getElementById("room-options-dropdown-menu");
+  if (dropdownBtn && dropdownMenu) {
+    dropdownBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      dropdownMenu.hidden = !dropdownMenu.hidden;
+    });
+    
+    // Close dropdown on click outside
+    document.addEventListener("click", () => {
+      dropdownMenu.hidden = true;
+    });
+    
+    // Stop propagation inside dropdown items to keep menu open if they interact (like language/sound changes)
+    dropdownMenu.addEventListener("click", (e) => {
+      e.stopPropagation();
     });
   }
 

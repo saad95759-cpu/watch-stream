@@ -15,6 +15,7 @@ const translations = {
     "room-leave-btn": "Leave",
     "room-copy-btn": "Copy link",
     "room-panel-btn": "Panel",
+    "room-options-btn": "Options",
     
     // Video Area
     "player-empty-text": "Paste a YouTube or MP4 URL below to start watching.",
@@ -80,6 +81,7 @@ const translations = {
     "room-leave-btn": "مغادرة",
     "room-copy-btn": "نسخ الرابط",
     "room-panel-btn": "اللوحة",
+    "room-options-btn": "الخيارات",
     
     // Video Area
     "player-empty-text": "ضع رابط يوتيوب أو MP4 بالأسفل للبدء بالمشاهدة.",

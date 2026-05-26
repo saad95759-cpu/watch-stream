@@ -377,15 +377,33 @@
           </span>
         </div>
         <div class="room-actions">
-          <button id="back-lobby-btn" class="btn btn-ghost" title="Leave room" data-i18n="room-leave-btn">Leave</button>
-          <button id="theme-toggle-btn" class="btn btn-ghost" title="Toggle Theme">🌗 Theme</button>
-          <button id="sound-toggle-btn" class="btn btn-ghost" title="Toggle Sound">🔊 Sound</button>
-          <button id="room-analytics-btn" class="btn btn-ghost" title="Room Analytics" hidden>📊 Stats</button>
-          <button id="lang-toggle-btn" class="btn btn-ghost" title="Toggle Language">🌐 EN</button>
-          <button id="speaker-btn" class="btn btn-ghost" title="Toggle speaker">&#128266; Speaker</button>
-          <button id="mic-btn" class="btn btn-ghost" title="Toggle microphone">&#127908; Mic</button>
+          <!-- VoIP Controls Group -->
+          <div class="voip-actions-group" style="display: flex; gap: 4px; background: var(--bg-elev); padding: 2px; border-radius: 8px; border: 1px solid var(--border);">
+            <button id="speaker-btn" class="btn btn-ghost btn-sm" title="Toggle speaker" style="padding: 6px 10px; font-size: 14px; border: none; background: transparent;">🔊 Speaker</button>
+            <button id="mic-btn" class="btn btn-ghost btn-sm" title="Toggle microphone" style="padding: 6px 10px; font-size: 14px; border: none; background: transparent;">🎤 Mic</button>
+          </div>
+
+          <!-- Copy Link Action -->
           <button id="copy-link-btn" class="btn btn-ghost" title="Copy room URL" data-i18n="room-copy-btn">Copy link</button>
-          <button id="room-pw-btn" class="btn btn-ghost" title="Room password" hidden>&#128274; Password</button>
+          
+          <!-- Options Dropdown Group -->
+          <div class="options-dropdown-wrapper" style="position: relative; display: inline-block;">
+            <button id="room-options-dropdown-btn" class="btn btn-ghost" title="Room Options" style="display: flex; align-items: center; gap: 6px;">
+              <span>⚙</span> <span data-i18n="room-options-btn">Options</span>
+            </button>
+            <div id="room-options-dropdown-menu" class="room-options-dropdown-menu" hidden>
+              <button id="theme-toggle-btn" class="dropdown-item">🌗 Theme</button>
+              <button id="sound-toggle-btn" class="dropdown-item">🔊 Sound</button>
+              <button id="lang-toggle-btn" class="dropdown-item">🌐 EN</button>
+              <button id="room-pw-btn" class="dropdown-item" hidden>🔑 Password</button>
+              <button id="room-analytics-btn" class="dropdown-item" hidden>📊 Stats</button>
+            </div>
+          </div>
+
+          <!-- Red Leave Action -->
+          <button id="back-lobby-btn" class="btn btn-danger" title="Leave room" data-i18n="room-leave-btn">Leave</button>
+          
+          <!-- Toggle Panel -->
           <button id="toggle-chat-btn" class="btn btn-ghost chat-toggle" aria-label="Toggle panel">
             <span data-i18n="room-panel-btn">Panel</span> <span id="chat-badge" class="chat-badge" hidden>0</span>
           </button>
