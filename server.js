@@ -7,7 +7,7 @@ import { Server } from "socket.io";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import crypto from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, exec } from "node:child_process";
 import dns from "node:dns/promises";
 import net from "node:net";
 import { Readable } from "node:stream";
@@ -101,6 +101,21 @@ const JS_STREAMING_HOSTS = [
   "abyssplayer", "abysscdn", "turbovid", "anafast", "vidspeed", 
   "vidoba", "krakenfiles", "vidsonic", "byselapuix", "minochinos", "savefiles",
   "hgcloud"
+];
+
+
+// Sites with native yt-dlp extractors — always use yt-dlp directly, skip Playwright
+const YTDLP_NATIVE_HOSTS = [
+  'pornhub.com', 'xvideos.com', 'xnxx.com', 'redtube.com', 'tube8.com',
+  'youporn.com', 'spankbang.com', 'xhamster.com', 'eporner.com',
+  'tnaflix.com', 'empflix.com', 'youjizz.com', 'txxx.com',
+  'drtuber.com', 'porntrex.com',
+  'youtube.com', 'youtu.be', 'vimeo.com', 'dailymotion.com',
+  'twitch.tv', 'facebook.com', 'instagram.com', 'twitter.com', 'x.com',
+  'tiktok.com', 'reddit.com', 'rumble.com', 'odysee.com', 'bitchute.com',
+  'ok.ru', 'vk.com', 'vkvideo.ru',
+  'streamable.com', 'streamja.com', 'streamff.com', 'streamgg.com',
+  'nicovideo.jp', 'mixcloud.com', 'soundcloud.com', 'bandcamp.com',
 ];
 
 const DRM_KEYWORDS = [
@@ -548,9 +563,10 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
     }
   } catch { /* fall through to yt-dlp */ }
   const isJsHost = JS_STREAMING_HOSTS.some(h => url.toLowerCase().includes(h));
+  const isYtdlpNative = YTDLP_NATIVE_HOSTS.some(h => url.toLowerCase().includes(h));
   try {
     let info;
-    if (isJsHost) {
+    if (isJsHost && !isYtdlpNative) {
       const browserResult = await browserExtract(url).catch(() => null);
       if (browserResult?.streamUrl) {
         // Persist session cookies and referer from the headless browser session
@@ -924,7 +940,7 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
 
   if (detectDrm(url)) return res.status(200).json({ drm: true, streams: [], error: "DRM-protected site — use Share Browser Tab instead." });
   const isJsHost = JS_STREAMING_HOSTS.some(h => url.toLowerCase().includes(h));
-  if (isJsHost) {
+  if (isJsHost && !isYtdlpNative) {
     return res.status(200).json({ streams: [], error: "Platform requires browser execution — initializing deep extraction..." });
   }
   const safe = await urlIsSafeForExtraction(url);
@@ -2754,8 +2770,29 @@ setTimeout(() => {
   setInterval(run48HourPurge, 60 * 60 * 1000);
 }, 5 * 60 * 1000);
 
+
+// ── yt-dlp auto-updater ───────────────────────────────────────────────────────
+const PIP_CMD = process.platform === 'win32' ? 'pip' : 'pip3';
+function runYtdlpUpdate(reason) {
+  exec(`${PIP_CMD} install -U yt-dlp`, { timeout: 120000 }, (err, stdout, stderr) => {
+    if (err) {
+      console.warn(`[yt-dlp] ${reason} update FAILED:`, err.message);
+    } else {
+      const line = (stdout || '').split('\n').find(l => l.includes('yt-dlp')) || 'done';
+      console.log(`[yt-dlp] ${reason} update OK: ${line.trim()}`);
+    }
+  });
+}
+
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`Watch Party server listening on ${PORT} at ${BASE_PATH}`);
+  // Auto-update yt-dlp on boot — keeps extractors current
+  try { runYtdlpUpdate("on-boot"); } catch (e) { console.warn("[yt-dlp] boot update error:", e.message); }
+});
+
+// Weekly yt-dlp self-update (every Sunday 03:00 AM server time)
+cron.schedule('0 3 * * 0', () => {
+  try { runYtdlpUpdate('weekly-cron'); } catch (e) { console.warn('[yt-dlp] weekly cron error:', e.message); }
 });
 
 // Automated bi-daily email reports

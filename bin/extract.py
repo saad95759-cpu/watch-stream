@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Resilient yt-dlp wrapper for Watch Party.
 
@@ -43,14 +43,31 @@ def main():
         print(json.dumps({"error": "no URL supplied"}))
         sys.exit(2)
     url = sys.argv[1]
+
+    # Standard browser-like headers to bypass basic anti-bot blocks
+    http_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://www.google.com/",
+    }
+
     opts = {
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
         "skip_download": True,
-        "socket_timeout": 15,
-        "retries": 1,
+        "socket_timeout": 20,
+        "retries": 3,
+        "fragment_retries": 3,
+        "http_headers": http_headers,
+        # Age-gate bypass for adult sites
+        "age_limit": 99,
+        "username": "oauth2",
+        "password": "",
     }
+
     try:
         with YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False, process=False)
@@ -69,4 +86,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
