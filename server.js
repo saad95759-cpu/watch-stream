@@ -533,9 +533,8 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
   if (cached && Date.now() - cached.t < EXTRACT_TTL_MS) {
     return res.json(cached.data);
   }
-  // If it's a native yt-dlp site (pornhub, youtube, etc.), bypass HTML scan and browser sniffer entirely (unless yt-dlp fails)
+  // If it's a native yt-dlp site (pornhub, youtube, etc.), run yt-dlp only — fail fast on error, no cascade
   if (hasNativeFreshUrl) {
-    let extractionError = null;
     try {
       const info = await ytDlpExtract(url);
       const headers = processYtdlpHeaders(info);
@@ -547,99 +546,27 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           type: best.type,
           title: info?.title || null,
           duration: info?.duration || null,
-          isLive: !info?.is_live,
+          isLive: !!info?.is_live,
           thumbnail: info?.thumbnail || null,
           sourcePage: url,
           proxyToken: token,
         };
-        return res.json(data);
-      }
-    } catch (e) {
-      extractionError = e;
-      console.warn("[Extract] yt-dlp failed for native host, trying fast HTML scan fallback...", e.message);
-    }
-
-    // Try fast HTML fetch + regex scan fallback if yt-dlp failed
-    try {
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(), 10000);
-      const resp = await fetch(url, {
-        headers: {
-          "User-Agent": BROWSER_UA,
-          "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.9",
-          "Referer": (() => { try { return new URL(url).origin + "/"; } catch { return url; } })(),
-        },
-        signal: controller.signal,
-      });
-      if (resp.ok) {
-        const cookies = storeCookiesFromResponse(resp);
-        const html = await resp.text();
-        const scanned = scanHtmlForStreams(html);
-        if (scanned.streams && scanned.streams.length > 0) {
-          const token = storeProxySession(cookies, url, BROWSER_UA);
-          const best = scanned.streams[0];
-          const data = {
-            streamUrl: best.url,
-            type: best.type,
-            title: scanned.title || null,
-            duration: null,
-            isLive: false,
-            thumbnail: scanned.thumbnail || null,
-            sourcePage: scanned.sourcePage || url,
-            allStreams: scanned.streams,
-            proxyToken: token,
-          };
-          return res.json(data);
+        if (extractCache.size >= EXTRACT_CACHE_MAX) {
+          const oldest = extractCache.keys().next().value;
+          if (oldest !== undefined) extractCache.delete(oldest);
         }
-      }
-    } catch (fetchErr) {
-      console.warn("[Extract] Fast HTML scan fallback failed:", fetchErr.message);
-    }
-
-    // Try browser/playwright fallback if fast HTML scan also failed
-    try {
-      const browserResult = await browserExtract(url);
-      if (browserResult?.streamUrl) {
-        const token = storeProxySession(browserResult.cookies || "", browserResult.referer || url, browserResult.userAgent || BROWSER_UA);
-        const data = {
-          streamUrl: browserResult.streamUrl,
-          type: browserResult.type || detectStreamType(browserResult.streamUrl),
-          title: browserResult.title || "Extracted Stream",
-          duration: browserResult.durationSec || null,
-          isLive: false,
-          thumbnail: null,
-          sourcePage: url,
-          proxyToken: token,
-        };
+        extractCache.set(url, { t: Date.now(), data });
         return res.json(data);
       }
-    } catch (browserErr) {
-      console.error("[Extract] Browser fallback also failed:", browserErr.message);
-      if (!extractionError) extractionError = browserErr;
+      return res.status(422).json({ code: "NO_STREAM_FOUND", error: "No playable stream found for this URL." });
+    } catch (e) {
+      // Fail fast — do NOT cascade to HTML fetch or browser extractor for native sites
+      const msg = String(e?.message || "Extraction failed");
+      if (e?.code === "EXTRACTOR_BUSY") return res.status(429).json({ error: msg, code: "EXTRACTOR_BUSY" });
+      if (/drm|widevine|fairplay|playready/i.test(msg)) return res.status(200).json({ drm: true, code: "DRM_PROTECTED", error: "This content is DRM-protected. Use \"Share Browser Tab\" to stream it instead." });
+      if (/timeout|aborted/i.test(msg)) return res.status(422).json({ code: "EXTRACTION_TIMEOUT", error: "The extraction request timed out. Try a direct .m3u8/.mp4 URL instead." });
+      return res.status(422).json({ code: "EXTRACTION_FAILED", error: msg.slice(0, 300) });
     }
-
-    // Format error response
-    const e = extractionError || new Error("Extraction failed");
-    let msg = String(e?.message || "Extraction failed");
-    let code = e?.code || "EXTRACTION_FAILED";
-    if (e?.code === "EXTRACTOR_BUSY") {
-      return res.status(429).json({ error: msg, code });
-    }
-    if (/drm|widevine|fairplay|playready/i.test(msg)) {
-      return res.status(200).json({ drm: true, code: "DRM_PROTECTED", error: "This content is DRM-protected. Use \"Share Browser Tab\" to stream it instead." });
-    }
-    if (/timeout|aborted/i.test(msg)) {
-      code = "EXTRACTION_TIMEOUT";
-      msg = "The extraction request timed out. The website is slow or blocking our server. Try a direct .m3u8/.mp4 URL instead.";
-    } else if (/Unable to extract|unsupported url/i.test(msg)) {
-      code = "UNSUPPORTED_URL";
-      msg = "This site's video format isn't supported. The extractor can't find the stream — try a direct .mp4/.m3u8 URL instead.";
-    } else if (/No video stream detected/i.test(msg)) {
-      code = "NO_STREAM_FOUND";
-      msg = "No video stream was detected on the page. The stream may require authentication or be geo-restricted.";
-    }
-    return res.status(422).json({ error: msg, code });
   }
 
   try {
