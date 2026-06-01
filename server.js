@@ -2146,7 +2146,7 @@ io.on("connection", (socket) => {
     ctx.room.isPlaying = isNowPlaying;
     ctx.room.lastUpdated = Date.now();
 
-    socket.to(ctx.rid).emit("playback-sync", {
+    io.to(ctx.rid).emit("playback-sync", {
       currentTime: newTime,
       isPlaying: isNowPlaying,
       by: socket.id
