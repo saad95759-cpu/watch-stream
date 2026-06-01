@@ -287,6 +287,43 @@ function browserExtract(url) {
 
 const PYTHON_CMD = process.platform === "win32" ? "python" : "python3";
 
+function processYtdlpHeaders(info, url) {
+  try {
+    let headers = null;
+    if (Array.isArray(info?.formats)) {
+      const firstPlayable = info.formats.find(f => f && f.url && f.http_headers);
+      if (firstPlayable) headers = firstPlayable.http_headers;
+    }
+    if (!headers && info?.http_headers) {
+      headers = info.http_headers;
+    }
+    if (!headers) return;
+
+    const normalized = {};
+    for (const key of Object.keys(headers)) {
+      normalized[key.toLowerCase()] = headers[key];
+    }
+
+    const cookieStr = normalized["cookie"] || "";
+    const userAgent = normalized["user-agent"] || "";
+    const referer = normalized["referer"] || "";
+
+    if (cookieStr || userAgent || referer) {
+      const hostname = new URL(url).hostname;
+      const key = hostname.replace(/^www\./, "");
+      const existing = domainCookies.get(key) || {};
+      domainCookies.set(key, {
+        cookies: cookieStr || existing.cookies || "",
+        referer: referer || existing.referer || "",
+        userAgent: userAgent || existing.userAgent || "",
+        t: Date.now()
+      });
+    }
+  } catch (err) {
+    console.warn("Failed to process yt-dlp headers", err);
+  }
+}
+
 function ytDlpExtract(url) {
   return new Promise((resolve, reject) => {
     execFile(
@@ -387,15 +424,16 @@ function pickBestStream(info) {
       tbr: f.tbr || 0,
       vcodec: f.vcodec,
       acodec: f.acodec,
+      http_headers: f.http_headers,
     }))
     .sort((a, b) => (b.height - a.height) || (b.tbr - a.tbr));
   const top = ranked[0];
-  if (!top && info?.url) return { url: info.url, type: detectStreamType(info.url) };
+  if (!top && info?.url) return { url: info.url, type: detectStreamType(info.url), http_headers: info.http_headers };
   if (!top) return null;
   let type = "mp4";
   if (top.protocol.includes("m3u8") || top.url.includes(".m3u8")) type = "hls";
   else if (top.protocol.includes("dash") || top.url.includes(".mpd")) type = "dash";
-  return { url: top.url, type };
+  return { url: top.url, type, http_headers: top.http_headers || info?.http_headers };
 }
 
 // Use SERVER_DIR (defined above) instead of re-deriving __dirname
@@ -516,6 +554,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
     let extractionError = null;
     try {
       const info = await ytDlpExtract(url);
+      processYtdlpHeaders(info, url);
       const best = pickBestStream(info);
       if (best && best.url) {
         const data = {
@@ -730,6 +769,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       }
       throw ytErr;
     }
+    processYtdlpHeaders(info, url);
     const best = pickBestStream(info);
     if (!best || !best.url) {
       return res.status(422).json({ error: "No playable stream found." });
@@ -966,9 +1006,10 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
     const cookieEntry = getCookiesForDomain(parsed.hostname);
     const storedCookies = typeof cookieEntry === "string" ? cookieEntry : (cookieEntry?.cookies || "");
     const storedReferer = (typeof cookieEntry === "object" && cookieEntry?.referer) ? cookieEntry.referer : referer;
+    const storedUserAgent = (typeof cookieEntry === "object" && cookieEntry?.userAgent) ? cookieEntry.userAgent : null;
 
     const proxyHeaders = {
-      "User-Agent": req.headers["user-agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "User-Agent": storedUserAgent || req.headers["user-agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
       "Referer": storedReferer || referer,
       "Origin": (() => { try { return new URL(storedReferer || referer).origin; } catch { return parsed.origin; } })(),
       "Accept": "*/*",
@@ -1099,6 +1140,7 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
 
   try {
     const info = await ytDlpExtract(url);
+    processYtdlpHeaders(info, url);
     const streams = ytDlpFormatsToStreams(info);
     if (streams.length === 0) return res.status(422).json({ streams: [], error: "No playable stream found for this URL." });
     return res.json({
