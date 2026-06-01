@@ -36,6 +36,18 @@ export default function VideoPlayer({
   const [currentLevel, setCurrentLevel] = useState('Auto');
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Helper: wrap any external URL in the backend proxy to bypass CORS
+  const proxyUrl = (rawUrl) => {
+    if (!rawUrl) return rawUrl;
+    // Already proxied
+    if (rawUrl.startsWith('/watch-party/api/') || rawUrl.startsWith('/api/')) return rawUrl;
+    // Local blob / object URL – serve directly
+    if (rawUrl.startsWith('blob:') || rawUrl.startsWith('/')) return rawUrl;
+    // External → route through server proxy
+    return `/watch-party/api/hls-proxy?url=${encodeURIComponent(rawUrl)}&ref=${encodeURIComponent(rawUrl)}`;
+  };
 
   // Floating Reactions listener
   useEffect(() => {
@@ -74,22 +86,37 @@ export default function VideoPlayer({
     setLevels([]);
     setCurrentLevel('Auto');
     setErrorMsg(null);
+    setIsLoading(true);
 
-    const handleVideoError = () => {
-      setErrorMsg('Stream blocked by origin. Try extracting again or use the Share Tab.');
+    const handleVideoError = (e) => {
+      const code = e?.target?.error?.code;
+      const msg = e?.target?.error?.message || '';
+      setIsLoading(false);
+      setErrorMsg(`Playback error (code ${code}): ${msg || 'Stream could not be loaded. Try extracting again or use the Share Tab.'}`);
     };
     video.addEventListener('error', handleVideoError);
 
+    const handleCanPlay = () => setIsLoading(false);
+    video.addEventListener('canplay', handleCanPlay);
+
     if (sourceType === 'hls') {
+      // Always proxy external HLS to bypass CORS restrictions
+      const finalUrl = proxyUrl(source);
+      console.log('[VideoPlayer] Attempting HLS load:', finalUrl);
+
       if (window.Hls && window.Hls.isSupported()) {
         const hls = new window.Hls({
           maxMaxBufferLength: 10,
           enableWorker: true,
           lowLatencyMode: true,
+          xhrSetup: (xhr) => {
+            xhr.withCredentials = false;
+          },
         });
-        hls.loadSource(source);
+        hls.loadSource(finalUrl);
         hls.attachMedia(video);
         hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
+          setIsLoading(false);
           const lvs = hls.levels.map((lvl, index) => ({
             id: index,
             name: lvl.height ? `${lvl.height}p` : `Level ${index}`,
@@ -105,19 +132,27 @@ export default function VideoPlayer({
           }
         });
         hls.on(window.Hls.Events.ERROR, (_, data) => {
+          console.error('[VideoPlayer] HLS error:', data.type, data.details, data);
           if (data.fatal) {
-            setErrorMsg('Stream blocked by origin. Try extracting again or use the Share Tab.');
+            setIsLoading(false);
+            setErrorMsg(`HLS ${data.type}: ${data.details} — Stream may be blocked. Try extracting again or use Share Tab.`);
+            try { hls.destroy(); } catch {}
+            setHlsInstance(null);
           }
         });
         setHlsInstance(hls);
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = source;
+        // Safari native HLS — still proxy it
+        video.src = finalUrl;
       }
     } else if (sourceType === 'dash') {
+      const finalUrl = proxyUrl(source);
+      console.log('[VideoPlayer] Attempting DASH load:', finalUrl);
       if (window.dashjs) {
         const player = window.dashjs.MediaPlayer().create();
-        player.initialize(video, source, false);
+        player.initialize(video, finalUrl, false);
         player.on(window.dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+          setIsLoading(false);
           const bitrates = player.getBitrateInfoListFor('video') || [];
           const lvs = bitrates.map((b, index) => ({
             id: index,
@@ -125,10 +160,18 @@ export default function VideoPlayer({
           }));
           setLevels(lvs);
         });
+        player.on(window.dashjs.MediaPlayer.events.ERROR, (e) => {
+          console.error('[VideoPlayer] DASH error:', e);
+          setIsLoading(false);
+          setErrorMsg(`DASH error: ${e?.error?.message || 'Stream could not be loaded.'}`);
+        });
         setDashPlayer(player);
       }
     } else {
-      video.src = source;
+      // mp4/webm — proxy external URLs
+      const finalUrl = proxyUrl(source);
+      console.log('[VideoPlayer] Attempting MP4 load:', finalUrl);
+      video.src = finalUrl;
     }
 
     // Ended handler for auto-advance queue
@@ -140,6 +183,7 @@ export default function VideoPlayer({
     video.addEventListener('ended', handleEnded);
     return () => {
       video.removeEventListener('error', handleVideoError);
+      video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('ended', handleEnded);
     };
   }, [source, sourceType]);
@@ -354,6 +398,22 @@ export default function VideoPlayer({
         <div id="player-overlay" className="player-overlay" />
       )}
 
+      {/* Loading Spinner Overlay */}
+      {isLoading && source && !errorMsg && sourceType !== 'youtube' && sourceType !== 'rtc' && (
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 90, flexDirection: 'column', gap: '14px'
+        }}>
+          <div style={{
+            width: '48px', height: '48px', border: '4px solid rgba(255,255,255,0.2)',
+            borderTopColor: '#fff', borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite'
+          }} />
+          <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '13px' }}>Loading stream…</div>
+        </div>
+      )}
+
       {/* Error Overlay */}
       {errorMsg && (
         <div style={{
@@ -362,7 +422,13 @@ export default function VideoPlayer({
           color: '#ff4444', zIndex: 100, padding: '20px', textAlign: 'center', flexDirection: 'column', gap: '12px'
         }}>
           <div style={{ fontSize: '32px' }}>⚠️</div>
-          <div style={{ fontSize: '14px', fontWeight: 'bold' }}>{errorMsg}</div>
+          <div style={{ fontSize: '14px', fontWeight: 'bold', maxWidth: '340px' }}>{errorMsg}</div>
+          {canControl && (
+            <button
+              style={{ marginTop: '8px', padding: '6px 18px', background: '#ff4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}
+              onClick={() => setErrorMsg(null)}
+            >Dismiss</button>
+          )}
         </div>
       )}
 
