@@ -18,8 +18,8 @@ if (!url) {
   process.exit(2);
 }
 
-const NAV_TIMEOUT = 12000;
-const SETTLE_MS = 4000;
+const NAV_TIMEOUT = 10000;
+const SETTLE_MS = 2500;
 
 // SSRF guard: block any sub-request the rendered page tries to make against
 // private / loopback / link-local / cloud-metadata addresses, even after

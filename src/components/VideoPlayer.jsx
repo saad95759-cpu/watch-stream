@@ -42,13 +42,16 @@ export default function VideoPlayer({
   // Helper: wrap any external URL in the backend proxy to bypass CORS
   const proxyUrl = (rawUrl) => {
     if (!rawUrl) return rawUrl;
-    // Already proxied
     if (rawUrl.startsWith('/watch-party/api/') || rawUrl.startsWith('/api/')) return rawUrl;
-    // Local blob / object URL – serve directly
     if (rawUrl.startsWith('blob:') || rawUrl.startsWith('/')) return rawUrl;
-    // External → route through server proxy
     const referer = sourcePage || rawUrl;
-    return `/watch-party/api/hls-proxy?url=${encodeURIComponent(rawUrl)}&ref=${encodeURIComponent(referer)}`;
+    try {
+      const b64Url = btoa(unescape(encodeURIComponent(rawUrl)));
+      const b64Ref = btoa(unescape(encodeURIComponent(referer)));
+      return `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}`;
+    } catch {
+      return `/watch-party/api/hls-proxy?url=${encodeURIComponent(rawUrl)}&ref=${encodeURIComponent(referer)}`;
+    }
   };
 
   // Floating Reactions listener

@@ -933,7 +933,14 @@ export default function Room({ roomId, onLeave }) {
       }
 
       if (deepData.streamUrl) {
-        const proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(deepData.streamUrl)}&ref=${encodeURIComponent(targetUrl)}`;
+        let proxiedUrl = deepData.streamUrl;
+        try {
+          const b64Url = btoa(unescape(encodeURIComponent(deepData.streamUrl)));
+          const b64Ref = btoa(unescape(encodeURIComponent(targetUrl)));
+          proxiedUrl = `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}`;
+        } catch {
+          proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(deepData.streamUrl)}&ref=${encodeURIComponent(targetUrl)}`;
+        }
         socket?.emit('set-source', {
           source: proxiedUrl,
           sourceType: deepData.type || 'mp4',
@@ -1787,7 +1794,14 @@ export default function Room({ roomId, onLeave }) {
               <div id="scanner-results" style={{ textAlign: 'left', maxHeight: '200px', overflowY: 'auto', background: 'var(--bg)', padding: '8px', borderRadius: '8px' }}>
                 {scanResults.map((s, idx) => {
                   const targetPage = scannerUrl || pasteHtmlText ? 'Scan Result' : 'Extracted Stream';
-                  const proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(s.url)}&ref=${encodeURIComponent(targetPage)}`;
+                  let proxiedUrl = s.url;
+                  try {
+                    const b64Url = btoa(unescape(encodeURIComponent(s.url)));
+                    const b64Ref = btoa(unescape(encodeURIComponent(targetPage)));
+                    proxiedUrl = `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}`;
+                  } catch {
+                    proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(s.url)}&ref=${encodeURIComponent(targetPage)}`;
+                  }
                   
                   return (
                     <button

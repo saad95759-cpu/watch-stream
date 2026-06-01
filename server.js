@@ -254,7 +254,7 @@ function browserExtract(url) {
     const child = execFile(
       "node",
       [BROWSER_EXTRACTOR, url],
-      { timeout: 20000, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024 },
+      { timeout: 45000, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024 },
       (err, stdout) => {
         const line = String(stdout || "").split("\n").find((l) => l.trim().startsWith("{"));
         if (!line) {
@@ -733,7 +733,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
   try {
     let info;
     if (isJsHost && !isYtdlpNative) {
-      const browserResult = await browserExtract(url).catch(() => null);
+      const browserResult = await browserExtract(url).catch((err) => { console.error('[Extract] Browser fallback failed:', err); return null; });
       if (browserResult?.streamUrl) {
         // Persist session cookies and referer from the headless browser session
         if (browserResult.cookies) {
@@ -986,8 +986,11 @@ function resolveUrl(urlStr, baseUrlStr) {
 }
 
 function rewriteM3u8(text, baseUrl, proxyPath, ref) {
-  const mkProxyUrl = (abs) =>
-    `${proxyPath}?url=${encodeURIComponent(abs)}&ref=${encodeURIComponent(ref)}`;
+  const mkProxyUrl = (abs) => {
+    const b64Url = Buffer.from(abs).toString("base64");
+    const b64Ref = Buffer.from(ref).toString("base64");
+    return `${proxyPath}?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}`;
+  };
   return text.split("\n").map((line) => {
     const trimmed = line.trim();
     if (trimmed.startsWith("#")) {
@@ -1003,8 +1006,17 @@ function rewriteM3u8(text, baseUrl, proxyPath, ref) {
 }
 
 app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
-  const rawUrl = typeof req.query.url === "string" ? req.query.url.trim() : "";
-  if (!rawUrl) return res.status(400).send("Missing url param");
+  let rawUrl = req.query.url;
+  let referer = typeof req.query.ref === "string" && req.query.ref ? req.query.ref : "";
+
+  if (req.query.b64) {
+    try { rawUrl = Buffer.from(req.query.b64, "base64").toString("utf8"); } catch {}
+  }
+  if (req.query.r64) {
+    try { referer = Buffer.from(req.query.r64, "base64").toString("utf8"); } catch {}
+  }
+
+  if (!rawUrl || typeof rawUrl !== "string") return res.status(400).send("No url provided");
 
   let parsed;
   try { parsed = new URL(rawUrl); } catch { return res.status(400).send("Invalid URL"); }
@@ -1022,14 +1034,14 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
     }
   } catch { return res.status(502).send("DNS error"); }
 
-  const referer = typeof req.query.ref === "string" && req.query.ref ? req.query.ref : (parsed.origin + "/");
+  const refererFull = referer || (parsed.origin + "/");
   const proxyPath = `/${BASE_PATH.replace(/^\//, "")}api/hls-proxy`;
 
   try {
     // Forward stored cookies from extraction (needed for PornHub-like CDNs)
      const cookieEntry = getCookiesForDomain(parsed.hostname);
      const storedCookies = typeof cookieEntry === "string" ? cookieEntry : (cookieEntry?.cookies || "");
-     const storedReferer = (typeof cookieEntry === "object" && cookieEntry?.referer) ? cookieEntry.referer : referer;
+     const storedReferer = (typeof cookieEntry === "object" && cookieEntry?.referer) ? cookieEntry.referer : refererFull;
      const storedUserAgent = (typeof cookieEntry === "object" && cookieEntry?.userAgent) ? cookieEntry.userAgent : null;
 
      console.log(`[Proxy] Target hostname: ${parsed.hostname}`);
@@ -1039,8 +1051,8 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
      const isBypassIpHeaders = parsed.hostname.includes("pornhub.com") || parsed.hostname.includes("phncdn.com") || parsed.hostname.includes("bilibili") || parsed.hostname.includes("bstar") || parsed.hostname.includes("akamaized");
      const proxyHeaders = {
        "User-Agent": storedUserAgent || req.headers["user-agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-       "Referer": storedReferer || referer,
-       "Origin": (() => { try { return new URL(storedReferer || referer).origin; } catch { return parsed.origin; } })(),
+       "Referer": storedReferer || refererFull,
+       "Origin": (() => { try { return new URL(storedReferer || refererFull).origin; } catch { return parsed.origin; } })(),
        "Accept": "*/*",
        "Accept-Language": "en-US,en;q=0.9",
        "Accept-Encoding": "identity",
@@ -1075,7 +1087,7 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
 
     if (isM3u8) {
       const text = await upstream.text();
-      const rewritten = rewriteM3u8(text, rawUrl, proxyPath, referer);
+      const rewritten = rewriteM3u8(text, rawUrl, proxyPath, refererFull);
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
       return res.send(rewritten);
     }
