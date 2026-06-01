@@ -56,6 +56,23 @@ export default function VideoPlayer({
     }
   };
 
+  // --- EARLY RETURN: IFrame sources (Bilibili etc.) get their own clean mount ---
+  if (sourceType === 'iframe' && source) {
+    return (
+      <div id="player-mount" className="player-mount" style={{ position: 'relative', width: '100%', height: '100%' }}>
+        <iframe
+          key={source}
+          src={source}
+          className="player iframe-player"
+          style={{ width: '100%', height: '100%', border: 'none', position: 'absolute', top: 0, left: 0 }}
+          allow="autoplay; encrypted-media; fullscreen"
+          allowFullScreen
+        />
+        <div ref={reactionCanvasRef} id="reaction-canvas" className="reaction-canvas" />
+      </div>
+    );
+  }
+
   // Floating Reactions listener
   useEffect(() => {
     if (!socket) return;
@@ -399,16 +416,7 @@ export default function VideoPlayer({
         </div>
       )}
 
-      {/* IFrame Player Wrapper (e.g., Bilibili) */}
-      {source && sourceType === 'iframe' && (
-        <iframe
-          src={source}
-          className="player iframe-player"
-          style={{ width: '100%', height: '100%', border: 'none', position: 'absolute', top: 0, left: 0 }}
-          allow="autoplay; encrypted-media; fullscreen"
-          allowFullScreen
-        />
-      )}
+      {/* IFrame Player Wrapper removed — iframes are now handled via early return above */}
 
       {/* RTC Screen Sharing Player */}
       {sourceType === 'rtc' && (

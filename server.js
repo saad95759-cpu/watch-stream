@@ -1119,6 +1119,11 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
   const safe = await urlIsSafeForExtraction(url);
   if (!safe) return res.status(400).json({ error: "URL host is not allowed." });
 
+  // Cache lookup for this route
+  const scanCacheKey = 'scan:' + url;
+  const cachedScan = extractCache.get(scanCacheKey);
+  if (cachedScan && Date.now() - cachedScan.t < EXTRACT_TTL_MS) return res.json(cachedScan.data);
+
   if (!isYtdlpNative) {
     try {
       const controller = new AbortController();
@@ -1153,6 +1158,7 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
       if (result.streams && result.streams.length > 0) {
         const token = storeProxySession(cookies, url, BROWSER_UA);
         result.proxyToken = token;
+        extractCache.set(scanCacheKey, { t: Date.now(), data: result });
         return res.json(result);
       }
     }
@@ -1165,14 +1171,16 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
     const token = storeProxySession(headers.cookieStr, headers.referer || url, headers.userAgent);
     const streams = ytDlpFormatsToStreams(info);
     if (streams.length === 0) return res.status(422).json({ streams: [], error: "No playable stream found for this URL." });
-    return res.json({
+    const responseData = {
       streams,
       title: info.title || null,
       duration: info.duration || null, 
       thumbnail: info.thumbnail || null,
       sourcePage: info.webpage_url || url,
       proxyToken: token,
-    });
+    };
+    extractCache.set(scanCacheKey, { t: Date.now(), data: responseData });
+    return res.json(responseData);
   } catch (ytErr) {
     const msg = String(ytErr?.message || "");
     if (/drm|widevine|fairplay|playready/i.test(msg)) {
