@@ -533,8 +533,9 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
   if (cached && Date.now() - cached.t < EXTRACT_TTL_MS) {
     return res.json(cached.data);
   }
-  // If it's a native yt-dlp site (pornhub, youtube, etc.), run yt-dlp only — fail fast on error, no cascade
+  // If it's a native yt-dlp site, run yt-dlp first — smart fallback to HTML scan on rate-limit (410/403/Gone)
   if (hasNativeFreshUrl) {
+    let rateLimited = false;
     try {
       const info = await ytDlpExtract(url);
       const headers = processYtdlpHeaders(info);
@@ -560,12 +561,53 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       }
       return res.status(422).json({ code: "NO_STREAM_FOUND", error: "No playable stream found for this URL." });
     } catch (e) {
-      // Fail fast — do NOT cascade to HTML fetch or browser extractor for native sites
       const msg = String(e?.message || "Extraction failed");
       if (e?.code === "EXTRACTOR_BUSY") return res.status(429).json({ error: msg, code: "EXTRACTOR_BUSY" });
       if (/drm|widevine|fairplay|playready/i.test(msg)) return res.status(200).json({ drm: true, code: "DRM_PROTECTED", error: "This content is DRM-protected. Use \"Share Browser Tab\" to stream it instead." });
-      if (/timeout|aborted/i.test(msg)) return res.status(422).json({ code: "EXTRACTION_TIMEOUT", error: "The extraction request timed out. Try a direct .m3u8/.mp4 URL instead." });
-      return res.status(422).json({ code: "EXTRACTION_FAILED", error: msg.slice(0, 300) });
+      // 410/403/Gone = Cloudflare rate-limit — fall through to HTML scan
+      if (/410|403|Gone|rate.?limit|blocked/i.test(msg)) {
+        console.warn("[Extract] yt-dlp rate-limited (" + msg.slice(0, 80) + "), falling back to HTML scan...");
+        rateLimited = true;
+      } else {
+        if (/timeout|aborted/i.test(msg)) return res.status(422).json({ code: "EXTRACTION_TIMEOUT", error: "The extraction request timed out. Try a direct .m3u8/.mp4 URL instead." });
+        return res.status(422).json({ code: "EXTRACTION_FAILED", error: msg.slice(0, 300) });
+      }
+    }
+    // HTML scan fallback — only reached on rate-limit
+    if (rateLimited) {
+      try {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 10000);
+        const resp = await fetch(url, {
+          headers: {
+            "User-Agent": BROWSER_UA,
+            "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": (() => { try { return new URL(url).origin + "/"; } catch { return url; } })(),
+          },
+          signal: controller.signal,
+        });
+        if (resp.ok) {
+          const cookies = storeCookiesFromResponse(resp);
+          const html = await resp.text();
+          const scanned = scanHtmlForStreams(html);
+          if (scanned.streams && scanned.streams.length > 0) {
+            const token = storeProxySession(cookies, url, BROWSER_UA);
+            const best = scanned.streams[0];
+            const data = {
+              streamUrl: best.url, type: best.type,
+              title: scanned.title || null, duration: null, isLive: false,
+              thumbnail: scanned.thumbnail || null, sourcePage: scanned.sourcePage || url,
+              allStreams: scanned.streams, proxyToken: token,
+            };
+            extractCache.set(url, { t: Date.now(), data });
+            return res.json(data);
+          }
+        }
+      } catch (fetchErr) {
+        console.warn("[Extract] HTML scan fallback also failed:", fetchErr.message);
+      }
+      return res.status(429).json({ code: "RATE_LIMITED", error: "The site is temporarily blocking our server (rate-limited). Please try again in a few minutes or paste the .m3u8 URL directly." });
     }
   }
 
@@ -1114,6 +1156,36 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
     }
     if (/timeout|aborted/i.test(msg)) {
       return res.status(422).json({ streams: [], code: "EXTRACTION_TIMEOUT", error: "The extraction request timed out. Try a direct .m3u8/.mp4 URL instead." });
+    }
+    // 410/403/Gone = Cloudflare rate-limit — try HTML scan as last resort
+    if (/410|403|Gone|rate.?limit|blocked/i.test(msg)) {
+      console.warn('[fetch-scan] yt-dlp rate-limited (' + msg.slice(0, 80) + '), trying HTML scan fallback...');
+      try {
+        const controller2 = new AbortController();
+        setTimeout(() => controller2.abort(), 10000);
+        const resp2 = await fetch(url, {
+          headers: {
+            "User-Agent": BROWSER_UA,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": (() => { try { return new URL(url).origin + '/'; } catch { return url; } })(),
+          },
+          signal: controller2.signal, redirect: "follow",
+        });
+        if (resp2.ok) {
+          const cookies2 = storeCookiesFromResponse(resp2);
+          const html2 = await resp2.text();
+          const result2 = scanHtmlForStreams(html2);
+          result2.sourcePage = result2.sourcePage || url;
+          if (result2.streams && result2.streams.length > 0) {
+            const token2 = storeProxySession(cookies2, url, BROWSER_UA);
+            result2.proxyToken = token2;
+            extractCache.set(url, { t: Date.now(), data: result2 });
+            return res.json(result2);
+          }
+        }
+      } catch { /* ignore */ }
+      return res.status(429).json({ streams: [], code: "RATE_LIMITED", error: "The site is temporarily blocking our server. Please try again in a few minutes." });
     }
     return res.status(422).json({ streams: [], code: "EXTRACTION_FAILED", error: `Could not find streams: ${msg.slice(0, 200)}` });
   }
