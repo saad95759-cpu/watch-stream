@@ -153,38 +153,25 @@ const EXTRACT_CACHE_MAX = 200;
 const proxySessions = new Map();
 const COOKIE_TTL_MS = 45 * 60 * 1000; // 45 minutes
 
-function storeProxySession(sourceUrl, cookieStr, referer, userAgent) {
-  proxySessions.set(sourceUrl, {
-    cookies: cookieStr,
-    referer: referer || sourceUrl,
+function storeProxySession(cookieStr, referer, userAgent) {
+  const token = crypto.randomBytes(4).toString('hex');
+  proxySessions.set(token, {
+    cookies: cookieStr || "",
+    referer: referer || "",
     userAgent: userAgent || BROWSER_UA,
     t: Date.now()
   });
+  return token;
 }
 
-function storeCookiesFromResponse(resp, url) {
+function storeCookiesFromResponse(resp) {
   try {
     const setCookies = resp.headers.getSetCookie?.() || [];
     if (setCookies.length > 0) {
-      const cookieStr = setCookies.map((c) => c.split(";")[0]).join("; ");
-      const existing = proxySessions.get(url);
-      storeProxySession(url, cookieStr, existing?.referer || url, existing?.userAgent);
+      return setCookies.map((c) => c.split(";")[0]).join("; ");
     }
   } catch { /* ignore */ }
-}
-
-function getProxySession(sourceUrl) {
-  const normSource = sourceUrl.replace(/\/+$/, "");
-  const entry = proxySessions.get(sourceUrl) || proxySessions.get(normSource) || proxySessions.get(sourceUrl + "/");
-  if (entry) {
-    if (Date.now() - entry.t >= COOKIE_TTL_MS) {
-      proxySessions.delete(sourceUrl);
-      proxySessions.delete(normSource);
-      return null;
-    }
-    return entry;
-  }
-  return null;
+  return "";
 }
 
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -293,7 +280,7 @@ function browserExtract(url) {
 
 const PYTHON_CMD = process.platform === "win32" ? "python" : "python3";
 
-function processYtdlpHeaders(info, url) {
+function processYtdlpHeaders(info) {
   try {
     let headers = null;
     if (Array.isArray(info?.formats)) {
@@ -303,7 +290,7 @@ function processYtdlpHeaders(info, url) {
     if (!headers && info?.http_headers) {
       headers = info.http_headers;
     }
-    if (!headers) return;
+    if (!headers) return { cookieStr: "", userAgent: "", referer: "" };
 
     const normalized = {};
     for (const key of Object.keys(headers)) {
@@ -314,18 +301,10 @@ function processYtdlpHeaders(info, url) {
     const userAgent = normalized["user-agent"] || "";
     const referer = normalized["referer"] || "";
 
-    if (cookieStr || userAgent || referer) {
-      const existing = proxySessions.get(url) || {};
-      const entry = {
-        cookies: cookieStr || existing.cookies || "",
-        referer: referer || existing.referer || url,
-        userAgent: userAgent || existing.userAgent || BROWSER_UA,
-        t: Date.now()
-      };
-      proxySessions.set(url, entry);
-    }
+    return { cookieStr, userAgent, referer };
   } catch (err) {
     console.warn("Failed to process yt-dlp headers", err);
+    return { cookieStr: "", userAgent: "", referer: "" };
   }
 }
 
@@ -559,7 +538,8 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
     let extractionError = null;
     try {
       const info = await ytDlpExtract(url);
-      processYtdlpHeaders(info, url);
+      const headers = processYtdlpHeaders(info);
+      const token = storeProxySession(headers.cookieStr, headers.referer || url, headers.userAgent);
       const best = pickBestStream(info);
       if (best && best.url) {
         const data = {
@@ -570,6 +550,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           isLive: !info?.is_live,
           thumbnail: info?.thumbnail || null,
           sourcePage: url,
+          proxyToken: token,
         };
         return res.json(data);
       }
@@ -592,10 +573,11 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
         signal: controller.signal,
       });
       if (resp.ok) {
-        storeCookiesFromResponse(resp, url);
+        const cookies = storeCookiesFromResponse(resp);
         const html = await resp.text();
         const scanned = scanHtmlForStreams(html);
         if (scanned.streams && scanned.streams.length > 0) {
+          const token = storeProxySession(cookies, url, BROWSER_UA);
           const best = scanned.streams[0];
           const data = {
             streamUrl: best.url,
@@ -606,6 +588,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
             thumbnail: scanned.thumbnail || null,
             sourcePage: scanned.sourcePage || url,
             allStreams: scanned.streams,
+            proxyToken: token,
           };
           return res.json(data);
         }
@@ -618,9 +601,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
     try {
       const browserResult = await browserExtract(url);
       if (browserResult?.streamUrl) {
-        if (browserResult.cookies) {
-          storeProxySession(url, browserResult.cookies, browserResult.referer || url, browserResult.userAgent);
-        }
+        const token = storeProxySession(browserResult.cookies || "", browserResult.referer || url, browserResult.userAgent || BROWSER_UA);
         const data = {
           streamUrl: browserResult.streamUrl,
           type: browserResult.type || detectStreamType(browserResult.streamUrl),
@@ -629,6 +610,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           isLive: false,
           thumbnail: null,
           sourcePage: url,
+          proxyToken: token,
         };
         return res.json(data);
       }
@@ -674,7 +656,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       signal: controller.signal,
     });
     if (resp.ok) {
-      storeCookiesFromResponse(resp, url);
+      const cookies = storeCookiesFromResponse(resp);
       const html = await resp.text();
       
       const iframeUrl = findVideoIframe(html);
@@ -690,6 +672,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
 
       const scanned = scanHtmlForStreams(html);
       if (scanned.streams && scanned.streams.length > 0) {
+        const token = storeProxySession(cookies, url, BROWSER_UA);
         const best = scanned.streams[0];
         const data = {
           streamUrl: best.url,
@@ -700,6 +683,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           thumbnail: null,
           sourcePage: scanned.sourcePage || url,
           allStreams: scanned.streams,
+          proxyToken: token,
         };
         if (extractCache.size >= EXTRACT_CACHE_MAX) {
           const oldest = extractCache.keys().next().value;
@@ -717,16 +701,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
     if (isJsHost && !isYtdlpNative) {
       const browserResult = await browserExtract(url).catch((err) => { console.error('[Extract] Browser fallback failed:', err); return null; });
       if (browserResult?.streamUrl) {
-        // Persist session cookies and referer from the headless browser session
-        if (browserResult.cookies) {
-          try {
-            const cdnDomain = new URL(browserResult.streamUrl).hostname.replace(/^www\./, "");
-            storeCookiesForDomain(cdnDomain, browserResult.cookies, browserResult.referer || url);
-            // Also store for the source page domain
-            const srcDomain = new URL(url).hostname.replace(/^www\./, "");
-            storeCookiesForDomain(srcDomain, browserResult.cookies, url);
-          } catch { /* ignore */ }
-        }
+        const token = storeProxySession(browserResult.cookies || "", browserResult.referer || url, browserResult.userAgent || BROWSER_UA);
         const data = {
           streamUrl: browserResult.streamUrl,
           type: browserResult.type || detectStreamType(browserResult.streamUrl),
@@ -735,6 +710,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           isLive: false,
           thumbnail: null,
           sourcePage: url,
+          proxyToken: token,
         };
         if (extractCache.size >= EXTRACT_CACHE_MAX) {
           const oldest = extractCache.keys().next().value;
@@ -750,6 +726,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       if (!isJsHost) {
         const browserResult = await browserExtract(url).catch(() => null);
         if (browserResult?.streamUrl) {
+          const token = storeProxySession(browserResult.cookies || "", browserResult.referer || url, browserResult.userAgent || BROWSER_UA);
           const data = {
             streamUrl: browserResult.streamUrl,
             type: browserResult.type || detectStreamType(browserResult.streamUrl),
@@ -758,6 +735,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
             isLive: false,
             thumbnail: null,
             sourcePage: url,
+            proxyToken: token,
           };
           if (extractCache.size >= EXTRACT_CACHE_MAX) {
             const oldest = extractCache.keys().next().value;
@@ -769,7 +747,8 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       }
       throw ytErr;
     }
-    processYtdlpHeaders(info, url);
+    const headers = processYtdlpHeaders(info);
+    const token = storeProxySession(headers.cookieStr, headers.referer || url, headers.userAgent);
     const best = pickBestStream(info);
     if (!best || !best.url) {
       return res.status(422).json({ error: "No playable stream found." });
@@ -782,6 +761,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       isLive: !!info?.is_live,
       thumbnail: info?.thumbnail || null,
       sourcePage: url,
+      proxyToken: token,
     };
     if (extractCache.size >= EXTRACT_CACHE_MAX) {
       const oldest = extractCache.keys().next().value;
@@ -962,11 +942,11 @@ function resolveUrl(urlStr, baseUrlStr) {
   }
 }
 
-function rewriteM3u8(text, baseUrl, proxyPath, ref) {
+function rewriteM3u8(text, baseUrl, proxyPath, ref, token) {
   const mkProxyUrl = (abs) => {
     const b64Url = Buffer.from(abs).toString("base64");
     const b64Ref = Buffer.from(ref).toString("base64");
-    return `${proxyPath}?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}`;
+    return `${proxyPath}?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}&ptk=${encodeURIComponent(token || "")}`;
   };
   return text.split("\n").map((line) => {
     const trimmed = line.trim();
@@ -1015,11 +995,15 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
   const proxyPath = `/${BASE_PATH.replace(/^\//, "")}api/hls-proxy`;
 
   try {
-    // Forward stored cookies from extraction using exact stream URL
-     const cookieEntry = getProxySession(refererFull);
-     const storedCookies = typeof cookieEntry === "object" ? cookieEntry.cookies : "";
-     const storedReferer = (typeof cookieEntry === "object" && cookieEntry?.referer) ? cookieEntry.referer : refererFull;
-     const storedUserAgent = (typeof cookieEntry === "object" && cookieEntry?.userAgent) ? cookieEntry.userAgent : null;
+    // Forward stored cookies using tokenized session lookup
+     const token = req.query.ptk || "";
+     const cookieEntry = proxySessions.get(token);
+     if (cookieEntry && Date.now() - cookieEntry.t >= COOKIE_TTL_MS) {
+       proxySessions.delete(token);
+     }
+     const storedCookies = cookieEntry ? cookieEntry.cookies : "";
+     const storedReferer = cookieEntry?.referer || refererFull || rawUrl;
+     const storedUserAgent = cookieEntry?.userAgent || null;
 
      console.log(`[Proxy] Target hostname: ${parsed.hostname}`);
      console.log(`[Proxy] Mapped cookies length: ${storedCookies ? storedCookies.length : 0}`);
@@ -1064,7 +1048,7 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
 
     if (isM3u8) {
       const text = await upstream.text();
-      const rewritten = rewriteM3u8(text, rawUrl, proxyPath, refererFull);
+      const rewritten = rewriteM3u8(text, rawUrl, proxyPath, refererFull, token);
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
       return res.send(rewritten);
     }
@@ -1149,7 +1133,7 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
     });
     clearTimeout(timer);
     if (resp.ok) {
-      storeCookiesFromResponse(resp, url);
+      const cookies = storeCookiesFromResponse(resp);
       const html = await resp.text();
       
       const iframeUrl = findVideoIframe(html);
@@ -1164,13 +1148,18 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
 
       const result = scanHtmlForStreams(html);
       result.sourcePage = result.sourcePage || url;
-      if (result.streams && result.streams.length > 0) return res.json(result);
+      if (result.streams && result.streams.length > 0) {
+        const token = storeProxySession(cookies, url, BROWSER_UA);
+        result.proxyToken = token;
+        return res.json(result);
+      }
     }
   } catch { /* fall through to yt-dlp */ }
 
   try {
     const info = await ytDlpExtract(url);
-    processYtdlpHeaders(info, url);
+    const headers = processYtdlpHeaders(info);
+    const token = storeProxySession(headers.cookieStr, headers.referer || url, headers.userAgent);
     const streams = ytDlpFormatsToStreams(info);
     if (streams.length === 0) return res.status(422).json({ streams: [], error: "No playable stream found for this URL." });
     return res.json({
@@ -1179,6 +1168,7 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
       duration: info.duration || null, 
       thumbnail: info.thumbnail || null,
       sourcePage: info.webpage_url || url,
+      proxyToken: token,
     });
   } catch (ytErr) {
     const msg = String(ytErr?.message || "");
@@ -1558,6 +1548,7 @@ async function finalizeJoinOther(targetSocket, roomId, room, hostKey) {
     sourcePage: room.sourcePage || null,
     title: room.title || null,
     thumbnail: room.thumbnail || null,
+    proxyToken: room.proxyToken || null,
     currentTime: projectedTime(room),
     isPlaying: room.isPlaying,
     history: room.history,
@@ -2068,7 +2059,7 @@ io.on("connection", (socket) => {
     rooms.delete(ctx.rid);
   });
 
-  socket.on("set-source", ({ source, sourceType, sourcePage, title, thumbnail }) => {
+  socket.on("set-source", ({ source, sourceType, sourcePage, title, thumbnail, proxyToken }) => {
     const ctx = requireMember();
     if (!ctx) return;
     if (typeof source !== "string" || typeof sourceType !== "string") return;
@@ -2081,6 +2072,7 @@ io.on("connection", (socket) => {
     ctx.room.sourcePage = (typeof sourcePage === "string" && sourcePage) ? sourcePage : null;
     ctx.room.title = (typeof title === "string" && title) ? title : null;
     ctx.room.thumbnail = (typeof thumbnail === "string" && thumbnail) ? thumbnail : null;
+    ctx.room.proxyToken = (typeof proxyToken === "string" && proxyToken) ? proxyToken : null;
     ctx.room.currentTime = 0;
     ctx.room.isPlaying = false;
     ctx.room.lastUpdated = Date.now();
@@ -2121,7 +2113,8 @@ io.on("connection", (socket) => {
       sourceType,
       sourcePage: ctx.room.sourcePage,
       title: ctx.room.title,
-      thumbnail: ctx.room.thumbnail
+      thumbnail: ctx.room.thumbnail,
+      proxyToken: ctx.room.proxyToken
     });
   });
 

@@ -183,6 +183,8 @@ export default function Room({ roomId, onLeave }) {
   const [scannerStatus, setScannerStatus] = useState('');
   const [scannerStatusKind, setScannerStatusKind] = useState('');
   const [scanning, setScanning] = useState(false);
+  const [proxyToken, setProxyToken] = useState('');
+  const [extractToken, setExtractToken] = useState('');
 
   // Room options dropdown
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
@@ -376,6 +378,7 @@ export default function Room({ roomId, onLeave }) {
       if (state.source) {
         setSource(state.source);
         setSourceType(state.sourceType);
+        setProxyToken(state.proxyToken || '');
         setCurrentTime(state.currentTime || 0);
         setIsPlaying(state.isPlaying || false);
         setVideoTitle(state.title || '');
@@ -442,9 +445,10 @@ export default function Room({ roomId, onLeave }) {
       setPublicToggleSetting(!!isPublic);
     };
 
-    const onSourceChanged = ({ source, sourceType, title, thumbnail, sourcePage }) => {
+    const onSourceChanged = ({ source, sourceType, title, thumbnail, sourcePage, proxyToken }) => {
       setSource(source);
       setSourceType(sourceType);
+      setProxyToken(proxyToken || '');
       setCurrentTime(0);
       setIsPlaying(false);
       setVideoTitle(title || '');
@@ -972,6 +976,7 @@ export default function Room({ roomId, onLeave }) {
 
       if (deepData.allStreams && deepData.allStreams.length > 0) {
         setScanResults(deepData.allStreams);
+        setExtractToken(deepData.proxyToken || '');
         setPasteModalOpen(true);
         setExtractStatus('');
         return;
@@ -982,9 +987,9 @@ export default function Room({ roomId, onLeave }) {
         try {
           const b64Url = btoa(unescape(encodeURIComponent(deepData.streamUrl)));
           const b64Ref = btoa(unescape(encodeURIComponent(targetUrl)));
-          proxiedUrl = `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}`;
+          proxiedUrl = `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}&ptk=${encodeURIComponent(deepData.proxyToken || '')}`;
         } catch {
-          proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(deepData.streamUrl)}&ref=${encodeURIComponent(targetUrl)}`;
+          proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(deepData.streamUrl)}&ref=${encodeURIComponent(targetUrl)}&ptk=${encodeURIComponent(deepData.proxyToken || '')}`;
         }
         socket?.emit('set-source', {
           source: proxiedUrl,
@@ -992,6 +997,7 @@ export default function Room({ roomId, onLeave }) {
           sourcePage: targetUrl,
           title: deepData.title,
           thumbnail: deepData.thumbnail,
+          proxyToken: deepData.proxyToken,
         });
         setExtractStatus('Stream loaded!');
         setExtractKind('ok');
@@ -1054,6 +1060,7 @@ export default function Room({ roomId, onLeave }) {
         setPasteModalOpen(false);
       } else if (data.streams && data.streams.length > 0) {
         setScanResults(data.streams);
+        setExtractToken(data.proxyToken || '');
         setScannerStatus(`Found ${data.streams.length} stream(s).`);
         setScannerStatusKind('ok');
       } else {
@@ -1090,11 +1097,20 @@ export default function Room({ roomId, onLeave }) {
         });
         const extData = await extRes.json();
         if (extData.streamUrl) {
+          let proxiedUrl = extData.streamUrl;
+          try {
+            const b64Url = btoa(unescape(encodeURIComponent(extData.streamUrl)));
+            const b64Ref = btoa(unescape(encodeURIComponent(data.redirectUrl)));
+            proxiedUrl = `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}&ptk=${encodeURIComponent(extData.proxyToken || '')}`;
+          } catch {
+            proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(extData.streamUrl)}&ref=${encodeURIComponent(data.redirectUrl)}&ptk=${encodeURIComponent(extData.proxyToken || '')}`;
+          }
           socket?.emit('set-source', {
-            source: extData.streamUrl,
+            source: proxiedUrl,
             sourceType: extData.type || 'mp4',
             sourcePage: extData.sourcePage || data.redirectUrl,
             title: extData.title,
+            proxyToken: extData.proxyToken,
           });
           setPasteModalOpen(false);
         } else {
@@ -1103,6 +1119,7 @@ export default function Room({ roomId, onLeave }) {
         }
       } else if (data.streams && data.streams.length > 0) {
         setScanResults(data.streams);
+        setExtractToken('');
         setScannerStatus(`Found ${data.streams.length} streams.`);
         setScannerStatusKind('ok');
       } else {
@@ -1284,6 +1301,7 @@ export default function Room({ roomId, onLeave }) {
               source={source}
               sourceType={sourceType}
               sourcePage={sourcePage}
+              proxyToken={proxyToken}
               currentTime={currentTime}
               isPlaying={isPlaying}
               canControl={canControl}
@@ -1867,9 +1885,9 @@ export default function Room({ roomId, onLeave }) {
                   try {
                     const b64Url = btoa(unescape(encodeURIComponent(s.url)));
                     const b64Ref = btoa(unescape(encodeURIComponent(targetPage)));
-                    proxiedUrl = `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}`;
+                    proxiedUrl = `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}&ptk=${encodeURIComponent(extractToken)}`;
                   } catch {
-                    proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(s.url)}&ref=${encodeURIComponent(targetPage)}`;
+                    proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(s.url)}&ref=${encodeURIComponent(targetPage)}&ptk=${encodeURIComponent(extractToken)}`;
                   }
                   
                   return (
@@ -1882,6 +1900,7 @@ export default function Room({ roomId, onLeave }) {
                           source: proxiedUrl,
                           sourceType: s.type || 'mp4',
                           title: s.label || 'Stream',
+                          proxyToken: extractToken,
                         });
                         setPasteModalOpen(false);
                       }}

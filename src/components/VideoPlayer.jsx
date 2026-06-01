@@ -8,6 +8,7 @@ export default function VideoPlayer({
   source,
   sourceType,
   sourcePage,
+  proxyToken,
   currentTime,
   isPlaying,
   canControl,
@@ -45,12 +46,13 @@ export default function VideoPlayer({
     if (rawUrl.startsWith('/watch-party/api/') || rawUrl.startsWith('/api/')) return rawUrl;
     if (rawUrl.startsWith('blob:') || rawUrl.startsWith('/')) return rawUrl;
     const referer = sourcePage || rawUrl;
+    const ptk = proxyToken || (typeof source === 'object' && source?.proxyToken) || '';
     try {
       const b64Url = btoa(unescape(encodeURIComponent(rawUrl)));
       const b64Ref = btoa(unescape(encodeURIComponent(referer)));
-      return `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}`;
+      return `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}&ptk=${encodeURIComponent(ptk)}`;
     } catch {
-      return `/watch-party/api/hls-proxy?url=${encodeURIComponent(rawUrl)}&ref=${encodeURIComponent(referer)}`;
+      return `/watch-party/api/hls-proxy?url=${encodeURIComponent(rawUrl)}&ref=${encodeURIComponent(referer)}&ptk=${encodeURIComponent(ptk)}`;
     }
   };
 
