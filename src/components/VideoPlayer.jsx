@@ -102,7 +102,7 @@ export default function VideoPlayer({
     if (sourceType === 'hls') {
       // Always proxy external HLS to bypass CORS restrictions
       const finalUrl = proxyUrl(source);
-      console.log('[VideoPlayer] Attempting HLS load:', finalUrl);
+      console.log('Attempting to load stream:', finalUrl);
 
       if (window.Hls && window.Hls.isSupported()) {
         const hls = new window.Hls({
@@ -113,6 +113,7 @@ export default function VideoPlayer({
             xhr.withCredentials = false;
           },
         });
+        console.log('Attempting to load stream:', finalUrl);
         hls.loadSource(finalUrl);
         hls.attachMedia(video);
         hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
@@ -135,7 +136,7 @@ export default function VideoPlayer({
           console.error('[VideoPlayer] HLS error:', data.type, data.details, data);
           if (data.fatal) {
             setIsLoading(false);
-            setErrorMsg(`HLS ${data.type}: ${data.details} — Stream may be blocked. Try extracting again or use Share Tab.`);
+            setErrorMsg(data.type + " - " + data.details);
             try { hls.destroy(); } catch {}
             setHlsInstance(null);
           }

@@ -515,6 +515,47 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
   if (cached && !hasNativeFreshUrl && Date.now() - cached.t < EXTRACT_TTL_MS) {
     return res.json(cached.data);
   }
+  // If it's a native yt-dlp site (pornhub, youtube, etc.), bypass HTML scan and browser sniffer entirely
+  if (hasNativeFreshUrl) {
+    try {
+      const info = await ytDlpExtract(url);
+      const best = pickBestStream(info);
+      if (!best || !best.url) {
+        return res.status(422).json({ error: "No playable stream found." });
+      }
+      const data = {
+        streamUrl: best.url,
+        type: best.type,
+        title: info?.title || null,
+        duration: info?.duration || null,
+        isLive: !info?.is_live,
+        thumbnail: info?.thumbnail || null,
+        sourcePage: url,
+      };
+      return res.json(data);
+    } catch (e) {
+      let msg = String(e?.message || "Extraction failed");
+      let code = e?.code || "EXTRACTION_FAILED";
+      if (e?.code === "EXTRACTOR_BUSY") {
+        return res.status(429).json({ error: msg, code });
+      }
+      if (/drm|widevine|fairplay|playready/i.test(msg)) {
+        return res.status(200).json({ drm: true, code: "DRM_PROTECTED", error: "This content is DRM-protected. Use \"Share Browser Tab\" to stream it instead." });
+      }
+      if (/timeout|aborted/i.test(msg)) {
+        code = "EXTRACTION_TIMEOUT";
+        msg = "The extraction request timed out. The website is slow or blocking our server. Try a direct .m3u8/.mp4 URL instead.";
+      } else if (/Unable to extract|unsupported url/i.test(msg)) {
+        code = "UNSUPPORTED_URL";
+        msg = "This site's video format isn't supported. The extractor can't find the stream — try a direct .mp4/.m3u8 URL instead.";
+      } else if (/No video stream detected/i.test(msg)) {
+        code = "NO_STREAM_FOUND";
+        msg = "No video stream was detected on the page. The stream may require authentication or be geo-restricted.";
+      }
+      return res.status(422).json({ error: msg, code });
+    }
+  }
+
   try {
     const controller = new AbortController();
     const fetchTimeout = (typeof hasNativeFreshUrl !== 'undefined' && hasNativeFreshUrl) ? 25000 : 10000;
@@ -856,7 +897,7 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
     const storedReferer = (typeof cookieEntry === "object" && cookieEntry?.referer) ? cookieEntry.referer : referer;
 
     const proxyHeaders = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "User-Agent": req.headers["user-agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
       "Referer": storedReferer || referer,
       "Origin": (() => { try { return new URL(storedReferer || referer).origin; } catch { return parsed.origin; } })(),
       "Accept": "*/*",
