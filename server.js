@@ -956,12 +956,7 @@ function parsePastedHtml(html) {
 
 function resolveUrl(urlStr, baseUrlStr) {
   try {
-    const resolved = new URL(urlStr, baseUrlStr);
-    const base = new URL(baseUrlStr);
-    if (!resolved.search && base.search) {
-      resolved.search = base.search;
-    }
-    return resolved.href;
+    return new URL(urlStr, baseUrlStr).href;
   } catch {
     return urlStr;
   }

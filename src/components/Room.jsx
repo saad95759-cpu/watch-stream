@@ -860,7 +860,7 @@ export default function Room({ roomId, onLeave }) {
       const tvId = biliMatch[2];
       let embedUrl = "";
       if (bvid) {
-        embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1`;
+        embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
       } else if (tvId) {
         embedUrl = `https://www.bilibili.tv/en/embed/${tvId}`;
       }
@@ -930,7 +930,7 @@ export default function Room({ roomId, onLeave }) {
       const tvId = biliMatch[2];
       let embedUrl = "";
       if (bvid) {
-        embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1`;
+        embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
       } else if (tvId) {
         embedUrl = `https://www.bilibili.tv/en/embed/${tvId}`;
       }
@@ -1017,7 +1017,7 @@ export default function Room({ roomId, onLeave }) {
       const tvId = biliMatch[2];
       let embedUrl = "";
       if (bvid) {
-        embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1`;
+        embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
       } else if (tvId) {
         embedUrl = `https://www.bilibili.tv/en/embed/${tvId}`;
       }
