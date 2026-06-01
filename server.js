@@ -1119,9 +1119,8 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
   const safe = await urlIsSafeForExtraction(url);
   if (!safe) return res.status(400).json({ error: "URL host is not allowed." });
 
-  // Cache lookup for this route
-  const scanCacheKey = 'scan:' + url;
-  const cachedScan = extractCache.get(scanCacheKey);
+  // Cache lookup — shared with /api/extract so yt-dlp only runs once per URL
+  const cachedScan = extractCache.get(url);
   if (cachedScan && Date.now() - cachedScan.t < EXTRACT_TTL_MS) return res.json(cachedScan.data);
 
   if (!isYtdlpNative) {
@@ -1158,7 +1157,7 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
       if (result.streams && result.streams.length > 0) {
         const token = storeProxySession(cookies, url, BROWSER_UA);
         result.proxyToken = token;
-        extractCache.set(scanCacheKey, { t: Date.now(), data: result });
+        extractCache.set(url, { t: Date.now(), data: result });
         return res.json(result);
       }
     }
@@ -1179,7 +1178,7 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
       sourcePage: info.webpage_url || url,
       proxyToken: token,
     };
-    extractCache.set(scanCacheKey, { t: Date.now(), data: responseData });
+    extractCache.set(url, { t: Date.now(), data: responseData });
     return res.json(responseData);
   } catch (ytErr) {
     const msg = String(ytErr?.message || "");
