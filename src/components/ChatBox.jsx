@@ -38,6 +38,7 @@ export default function ChatBox({
   hostSocketId,
   onClose,
   slowModeDelay,
+  hideJoinLeftAlerts = false,
 }) {
   const { t } = useTranslation();
   const { socket } = useSocket();
@@ -422,6 +423,11 @@ export default function ChatBox({
           <div id="chat-messages" className="chat-messages">
             {messages.map((msg, idx) => {
               if (msg.type === 'system') {
+                const textLower = (msg.text || '').toLowerCase();
+                const isJoinLeave = textLower.includes('joined') || textLower.includes('left') || textLower.includes('دخل') || textLower.includes('غادر');
+                if (hideJoinLeftAlerts && isJoinLeave) {
+                  return null;
+                }
                 return (
                   <div key={idx} className="system-msg">
                     {msg.text}

@@ -923,12 +923,18 @@ function rewriteM3u8(text, baseUrl, proxyPath, ref) {
     if (trimmed.startsWith("#")) {
       return line.replace(/URI="([^"]+)"/g, (_m, uri) => {
         const abs = new URL(uri, base).toString();
-        return `URI="${mkProxyUrl(abs)}"`;
+        if (abs.includes(".m3u8") || abs.includes(".m3u")) {
+          return `URI="${mkProxyUrl(abs)}"`;
+        }
+        return `URI="${abs}"`;
       });
     }
     if (!trimmed) return line;
     const abs = new URL(trimmed, base).toString();
-    return mkProxyUrl(abs);
+    if (abs.includes(".m3u8") || abs.includes(".m3u")) {
+      return mkProxyUrl(abs);
+    }
+    return abs;
   }).join("\n");
 }
 
@@ -968,6 +974,8 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
       "Accept": "*/*",
       "Accept-Language": "en-US,en;q=0.9",
       "Accept-Encoding": "identity",
+      "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip || req.socket.remoteAddress,
+      "X-Real-IP": req.headers["x-real-ip"] || req.socket.remoteAddress,
     };
     if (storedCookies) proxyHeaders["Cookie"] = storedCookies;
     // Forward Range header for seekable MP4 streams

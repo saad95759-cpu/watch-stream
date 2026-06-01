@@ -2378,3 +2378,220 @@ html, body {
   from { transform: translateX(100%); }
   to { transform: translateX(0); }
 }
+
+/* ===== Rave App Redesign styling ===== */
+.bg-style-acrylic {
+  background: linear-gradient(135deg, #0e0a1a 0%, #1c0e35 50%, #0c081e 100%) !important;
+  backdrop-filter: blur(25px);
+}
+.bg-style-solid {
+  background: #0d0c15 !important;
+}
+.bg-style-dark {
+  background: #000000 !important;
+}
+
+.participants-left .room-body {
+  flex-direction: row-reverse;
+}
+
+.rave-settings-card {
+  width: 90vw !important;
+  max-width: 580px !important;
+  background: rgba(18, 12, 34, 0.88) !important;
+  backdrop-filter: blur(30px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border-radius: 20px !important;
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
+}
+
+.rave-settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 12px;
+}
+
+.rave-settings-header h3 {
+  margin: 0;
+  font-size: 20px;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 700;
+}
+
+.rave-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 24px;
+  cursor: pointer;
+  line-height: 1;
+  transition: color var(--transition-fast);
+}
+.rave-close-btn:hover {
+  color: var(--text);
+}
+
+.rave-settings-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 8px;
+}
+
+.rave-tab-btn {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+}
+.rave-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.rave-tab-btn.active {
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.15), rgba(168, 85, 247, 0.15));
+  color: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.15);
+}
+
+.rave-settings-content {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-bottom: 16px;
+}
+
+.rave-settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  text-align: left;
+}
+
+.rave-setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  padding: 14px;
+  border-radius: 12px;
+}
+.rave-setting-group h4 {
+  margin: 0 0 4px 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--primary);
+}
+
+.rave-toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.rave-toggle-row input[type="checkbox"] {
+  width: 38px;
+  height: 20px;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  position: relative;
+  outline: none;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+.rave-toggle-row input[type="checkbox"]:checked {
+  background: var(--primary);
+}
+.rave-toggle-row input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  top: 2px;
+  left: 2px;
+  transition: transform var(--transition-fast);
+}
+.rave-toggle-row input[type="checkbox"]:checked::before {
+  transform: translateX(18px);
+}
+
+.rave-setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rave-setting-item span {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.rave-setting-item select {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: 8px;
+  outline: none;
+  cursor: pointer;
+  transition: border var(--transition-fast);
+}
+.rave-setting-item select:focus {
+  border-color: var(--primary);
+}
+
+.rave-slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rave-slider-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.rave-slider-group input[type="range"] {
+  width: 100%;
+  accent-color: var(--primary);
+  background: rgba(255, 255, 255, 0.1);
+  height: 6px;
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+
+.rave-test-btn {
+  margin-top: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+  color: var(--text) !important;
+}
+.rave-test-btn:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.05);
+}

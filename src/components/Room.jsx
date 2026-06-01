@@ -142,6 +142,34 @@ export default function Room({ roomId, onLeave }) {
   const [publicToggleSetting, setPublicToggleSetting] = useState(false);
   const [slowModeSetting, setSlowModeSetting] = useState(0);
 
+  const [restrictInvites, setRestrictInvites] = useState(false);
+  const [hideLocation, setHideLocation] = useState(false);
+  const [playbackVoting, setPlaybackVoting] = useState(true);
+  const [micsDefaultOn, setMicsDefaultOn] = useState(true);
+  const [hideJoinLeftAlerts, setHideJoinLeftAlerts] = useState(false);
+  const [participantsOnLeft, setParticipantsOnLeft] = useState(false);
+
+  const [languageOption, setLanguageOption] = useState('en');
+  const [windowBgStyle, setWindowBgStyle] = useState('acrylic');
+  const [autoTranslateChat, setAutoTranslateChat] = useState(false);
+  const [notifyInvites, setNotifyInvites] = useState(true);
+  const [notifyMissedChat, setNotifyMissedChat] = useState(true);
+  const [notifyClipboard, setNotifyClipboard] = useState(false);
+  const [notifyDMs, setNotifyDMs] = useState(true);
+  const [updateChannel, setUpdateChannel] = useState('stable');
+  const [preciseSync, setPreciseSync] = useState(true);
+  const [customWebviewStyle, setCustomWebviewStyle] = useState(false);
+
+  const [noiseGate, setNoiseGate] = useState(30);
+  const [noiseSuppression, setNoiseSuppression] = useState(false);
+  const [incomingVoiceVolume, setIncomingVoiceVolume] = useState(80);
+  const [mediaVolume, setMediaVolume] = useState(100);
+  const [audioInputDevices, setAudioInputDevices] = useState([]);
+  const [audioOutputDevices, setAudioOutputDevices] = useState([]);
+  const [selectedInputDevice, setSelectedInputDevice] = useState('default');
+  const [selectedOutputDevice, setSelectedOutputDevice] = useState('default');
+  const [activeSettingsTab, setActiveSettingsTab] = useState('room');
+
   const [sourceInput, setSourceInput] = useState('');
   const [extractStatus, setExtractStatus] = useState('');
   const [extractKind, setExtractKind] = useState('');
@@ -172,9 +200,34 @@ export default function Room({ roomId, onLeave }) {
     } else {
       document.body.classList.remove('light-theme');
     }
-    try { localStorage.setItem('wp-theme', theme); } catch {}
   }, [theme]);
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
+
+  // Rave App - Fetch Audio Devices
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      navigator.mediaDevices.enumerateDevices()
+        .then((devices) => {
+          setAudioInputDevices(devices.filter(d => d.kind === 'audioinput'));
+          setAudioOutputDevices(devices.filter(d => d.kind === 'audiooutput'));
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  // Rave App - Update Peer audio volumes dynamically
+  useEffect(() => {
+    voipAudiosRef.current.forEach((audio) => {
+      audio.volume = speakerActive ? (incomingVoiceVolume / 100) : 0;
+    });
+  }, [incomingVoiceVolume, speakerActive]);
+
+  // Rave App - Synchronize language settings option
+  useEffect(() => {
+    if (languageOption && setLang) {
+      setLang(languageOption);
+    }
+  }, [languageOption, setLang]);
 
   const canControl = myRole === 'host' || myRole === 'admin' || myRole === 'superadmin';
 
@@ -1006,7 +1059,7 @@ export default function Room({ roomId, onLeave }) {
   };
 
   return (
-    <section id="room" className="room">
+    <section id="room" className={`room theme-${theme} bg-style-${windowBgStyle} ${participantsOnLeft ? 'participants-left' : ''}`}>
       {/* Pinned Broadcast Banner */}
       {pinnedMessage && (
         <div id="global-announcement-banner" className="announcement-banner">
@@ -1168,6 +1221,7 @@ export default function Room({ roomId, onLeave }) {
               rtcStream={rtcStream}
               localStream={localStream}
               isSharingSelf={isSharingSelf}
+              mediaVolume={mediaVolume}
             />
           </div>
 
@@ -1286,6 +1340,7 @@ export default function Room({ roomId, onLeave }) {
             hostSocketId={hostSocketId}
             onClose={() => setChatOpen(false)}
             slowModeDelay={slowModeSetting}
+            hideJoinLeftAlerts={hideJoinLeftAlerts}
           />
         )}
       </main>
@@ -1350,43 +1405,324 @@ export default function Room({ roomId, onLeave }) {
       {/* Settings Modal */}
       {settingsOpen && (
         <div id="room-settings-modal" className="modal-overlay">
-          <div className="modal-card">
-            <h3>Room Settings</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', margin: '16px 0', textAlign: 'left' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input
-                  type="checkbox"
-                  checked={requireApprovalSetting}
-                  onChange={(e) => setRequireApprovalSetting(e.target.checked)}
-                />
-                Require Approval to join
-              </label>
-
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input
-                  type="checkbox"
-                  checked={publicToggleSetting}
-                  onChange={(e) => setPublicToggleSetting(e.target.checked)}
-                />
-                List Room Publicly
-              </label>
-
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <span>Chat Slow Mode (seconds)</span>
-                <select
-                  value={slowModeSetting}
-                  onChange={(e) => setSlowModeSetting(parseInt(e.target.value))}
-                  style={{ background: 'var(--bg-elev-2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px', borderRadius: '4px' }}
-                >
-                  <option value={0}>Off</option>
-                  <option value={5}>5s</option>
-                  <option value={10}>10s</option>
-                  <option value={30}>30s</option>
-                </select>
-              </label>
+          <div className="modal-card rave-settings-card">
+            <div className="rave-settings-header">
+              <h3>Preferences</h3>
+              <button className="rave-close-btn" onClick={() => setSettingsOpen(false)}>&times;</button>
             </div>
+            
+            <div className="rave-settings-tabs">
+              <button 
+                type="button" 
+                className={`rave-tab-btn ${activeSettingsTab === 'room' ? 'active' : ''}`}
+                onClick={() => setActiveSettingsTab('room')}
+              >
+                📹 Room
+              </button>
+              <button 
+                type="button" 
+                className={`rave-tab-btn ${activeSettingsTab === 'preferences' ? 'active' : ''}`}
+                onClick={() => setActiveSettingsTab('preferences')}
+              >
+                ⚙️ Prefs
+              </button>
+              <button 
+                type="button" 
+                className={`rave-tab-btn ${activeSettingsTab === 'audio' ? 'active' : ''}`}
+                onClick={() => setActiveSettingsTab('audio')}
+              >
+                🎙️ Audio
+              </button>
+            </div>
+
+            <div className="rave-settings-content">
+              {activeSettingsTab === 'room' && (
+                <div className="rave-settings-panel">
+                  <div className="rave-setting-group">
+                    <h4>Privacy & Invites</h4>
+                    <label className="rave-toggle-row">
+                      <span>Public (list room publicly)</span>
+                      <input
+                        type="checkbox"
+                        checked={publicToggleSetting}
+                        onChange={(e) => setPublicToggleSetting(e.target.checked)}
+                      />
+                    </label>
+                    <label className="rave-toggle-row">
+                      <span>Require Admin Approval to Join</span>
+                      <input
+                        type="checkbox"
+                        checked={requireApprovalSetting}
+                        onChange={(e) => setRequireApprovalSetting(e.target.checked)}
+                      />
+                    </label>
+                    <label className="rave-toggle-row">
+                      <span>Restrict invites</span>
+                      <input
+                        type="checkbox"
+                        checked={restrictInvites}
+                        onChange={(e) => setRestrictInvites(e.target.checked)}
+                      />
+                    </label>
+                    <label className="rave-toggle-row">
+                      <span>Hide location</span>
+                      <input
+                        type="checkbox"
+                        checked={hideLocation}
+                        onChange={(e) => setHideLocation(e.target.checked)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rave-setting-group">
+                    <h4>Playback Controls</h4>
+                    <label className="rave-toggle-row">
+                      <span>Voting occurs during video</span>
+                      <input
+                        type="checkbox"
+                        checked={playbackVoting}
+                        onChange={(e) => setPlaybackVoting(e.target.checked)}
+                      />
+                    </label>
+                    <label className="rave-toggle-row">
+                      <span>Mics default to on</span>
+                      <input
+                        type="checkbox"
+                        checked={micsDefaultOn}
+                        onChange={(e) => setMicsDefaultOn(e.target.checked)}
+                      />
+                    </label>
+                    <label className="rave-setting-item">
+                      <span>Chat Slow Mode</span>
+                      <select
+                        value={slowModeSetting}
+                        onChange={(e) => setSlowModeSetting(parseInt(e.target.value))}
+                      >
+                        <option value={0}>Off</option>
+                        <option value={5}>5s</option>
+                        <option value={10}>10s</option>
+                        <option value={30}>30s</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="rave-setting-group">
+                    <h4>Visibility & Layout</h4>
+                    <label className="rave-toggle-row">
+                      <span>Hide join/left messages</span>
+                      <input
+                        type="checkbox"
+                        checked={hideJoinLeftAlerts}
+                        onChange={(e) => setHideJoinLeftAlerts(e.target.checked)}
+                      />
+                    </label>
+                    <label className="rave-toggle-row">
+                      <span>Participants panel on the left</span>
+                      <input
+                        type="checkbox"
+                        checked={participantsOnLeft}
+                        onChange={(e) => setParticipantsOnLeft(e.target.checked)}
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {activeSettingsTab === 'preferences' && (
+                <div className="rave-settings-panel">
+                  <div className="rave-setting-group">
+                    <h4>General</h4>
+                    <label className="rave-setting-item">
+                      <span>Language</span>
+                      <select value={languageOption} onChange={(e) => setLanguageOption(e.target.value)}>
+                        <option value="en">Device Language (English)</option>
+                        <option value="ar">العربية (Arabic)</option>
+                      </select>
+                    </label>
+                    <label className="rave-setting-item">
+                      <span>Window Background</span>
+                      <select value={windowBgStyle} onChange={(e) => setWindowBgStyle(e.target.value)}>
+                        <option value="acrylic">Background - Acrylic</option>
+                        <option value="solid">Solid Slate</option>
+                        <option value="dark">Pure Dark</option>
+                      </select>
+                    </label>
+                    <label className="rave-toggle-row">
+                      <span>Auto-Translate Chat</span>
+                      <input
+                        type="checkbox"
+                        checked={autoTranslateChat}
+                        onChange={(e) => setAutoTranslateChat(e.target.checked)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rave-setting-group">
+                    <h4>Notifications</h4>
+                    <label className="rave-toggle-row">
+                      <span>Missed Chat Alerts</span>
+                      <input
+                        type="checkbox"
+                        checked={notifyMissedChat}
+                        onChange={(e) => setNotifyMissedChat(e.target.checked)}
+                      />
+                    </label>
+                    <label className="rave-toggle-row">
+                      <span>Invites Notifications</span>
+                      <input
+                        type="checkbox"
+                        checked={notifyInvites}
+                        onChange={(e) => setNotifyInvites(e.target.checked)}
+                      />
+                    </label>
+                    <label className="rave-toggle-row">
+                      <span>Clipboard Sharing</span>
+                      <input
+                        type="checkbox"
+                        checked={notifyClipboard}
+                        onChange={(e) => setNotifyClipboard(e.target.checked)}
+                      />
+                    </label>
+                    <label className="rave-toggle-row">
+                      <span>Direct Messages</span>
+                      <input
+                        type="checkbox"
+                        checked={notifyDMs}
+                        onChange={(e) => setNotifyDMs(e.target.checked)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rave-setting-group">
+                    <h4>System Info</h4>
+                    <label className="rave-setting-item">
+                      <span>Update Channel</span>
+                      <select value={updateChannel} onChange={(e) => setUpdateChannel(e.target.value)}>
+                        <option value="stable">Stable Release</option>
+                        <option value="beta">Beta Testing</option>
+                      </select>
+                    </label>
+                    <label className="rave-toggle-row">
+                      <span>Precise playback sync</span>
+                      <input
+                        type="checkbox"
+                        checked={preciseSync}
+                        onChange={(e) => setPreciseSync(e.target.checked)}
+                      />
+                    </label>
+                    <label className="rave-toggle-row">
+                      <span>Custom webview style</span>
+                      <input
+                        type="checkbox"
+                        checked={customWebviewStyle}
+                        onChange={(e) => setCustomWebviewStyle(e.target.checked)}
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {activeSettingsTab === 'audio' && (
+                <div className="rave-settings-panel">
+                  <div className="rave-setting-group">
+                    <h4>Device Configuration</h4>
+                    <label className="rave-setting-item">
+                      <span>Microphone</span>
+                      <select value={selectedInputDevice} onChange={(e) => setSelectedInputDevice(e.target.value)}>
+                        <option value="default">Default Input Device</option>
+                        {audioInputDevices.map((d) => (
+                          <option key={d.deviceId} value={d.deviceId}>{d.label || 'Microphone'}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="rave-setting-item">
+                      <span>Speaker</span>
+                      <select value={selectedOutputDevice} onChange={(e) => setSelectedOutputDevice(e.target.value)}>
+                        <option value="default">Default Output Device</option>
+                        {audioOutputDevices.map((d) => (
+                          <option key={d.deviceId} value={d.deviceId}>{d.label || 'Speaker/Headphones'}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="rave-setting-group">
+                    <h4>Audio Levels</h4>
+                    <div className="rave-slider-group">
+                      <div className="rave-slider-label">
+                        <span>Incoming Voice Volume</span>
+                        <span>{incomingVoiceVolume}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={incomingVoiceVolume}
+                        onChange={(e) => setIncomingVoiceVolume(parseInt(e.target.value))}
+                      />
+                    </div>
+
+                    <div className="rave-slider-group">
+                      <div className="rave-slider-label">
+                        <span>Media Playback Volume</span>
+                        <span>{mediaVolume}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={mediaVolume}
+                        onChange={(e) => setMediaVolume(parseInt(e.target.value))}
+                      />
+                    </div>
+
+                    <div className="rave-slider-group">
+                      <div className="rave-slider-label">
+                        <span>Noise Gate sensitivity</span>
+                        <span>{noiseGate}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={noiseGate}
+                        onChange={(e) => setNoiseGate(parseInt(e.target.value))}
+                      />
+                    </div>
+
+                    <label className="rave-toggle-row">
+                      <span>AI Noise Suppression</span>
+                      <input
+                        type="checkbox"
+                        checked={noiseSuppression}
+                        onChange={(e) => setNoiseSuppression(e.target.checked)}
+                      />
+                    </label>
+
+                    <button 
+                      type="button" 
+                      className="btn btn-ghost rave-test-btn"
+                      onClick={() => {
+                        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        gain.gain.setValueAtTime(0.1 * (mediaVolume / 100), audioCtx.currentTime);
+                        osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+                        osc.start();
+                        osc.stop(audioCtx.currentTime + 0.5);
+                      }}
+                    >
+                      🔊 Test Speaker Sound
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="modal-actions">
-              <button className="btn" onClick={() => setSettingsOpen(false)}>Cancel</button>
+              <button className="btn" onClick={() => setSettingsOpen(false)}>Close</button>
               <button className="btn btn-primary" onClick={handleRoomOptionsSave}>Save Settings</button>
             </div>
           </div>
