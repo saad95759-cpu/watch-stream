@@ -15,6 +15,7 @@ import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import nodemailer from "nodemailer";
 import mongoose from "mongoose";
+import cron from "node-cron";
 import { connectDB, RoomLog, IpBan } from "./db.js";
 
 await connectDB();
@@ -2701,4 +2702,43 @@ setTimeout(() => {
 
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`Watch Party server listening on ${PORT} at ${BASE_PATH}`);
+});
+
+// Automated bi-daily email reports
+cron.schedule("0 */12 * * *", async () => {
+  try {
+    const receiver = process.env.REPORT_RECEIVER_EMAIL;
+    if (!receiver) return;
+    
+    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000);
+    const logs = await RoomLog.find({ 
+      $or: [
+        { ts: { $gte: twelveHoursAgo.getTime() } },
+        { createdAt: { $gte: twelveHoursAgo } }
+      ]
+    }).sort({ ts: 1 }).lean();
+    
+    let csv = "Timestamp,RoomId,Type,Name,Message/URL\n";
+    for (const l of logs) {
+      const ts = new Date(l.ts || l.createdAt || Date.now()).toISOString();
+      const rid = l.roomId || "unknown";
+      const type = l.type || "";
+      const name = (l.name || l.playedByName || "").replace(/"/g, '""');
+      const text = (l.text || l.url || "").replace(/"/g, '""');
+      csv += `${ts},${rid},${type},"${name}","${text}"\n`;
+    }
+
+    const mailOptions = {
+      from: process.env.SMTP_USER,
+      to: receiver,
+      subject: `Bi-Daily System Report - Watch Stream`,
+      text: `Attached is the automated bi-daily CSV report.`,
+      attachments: [{ filename: `system-report-${Date.now()}.csv`, content: csv }]
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log("[CRON] Bi-daily email report sent.");
+  } catch (err) {
+    console.error("[CRON] Failed to send bi-daily report:", err);
+  }
 });

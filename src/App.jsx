@@ -3,6 +3,7 @@ import Lobby from './components/Lobby';
 import AdminDashboard from './components/AdminDashboard';
 import Room from './components/Room';
 import { useTranslation } from './hooks/useTranslation';
+import { useSocket } from './hooks/useSocket';
 
 // Global page transition spinner
 function PageSpinner() {
@@ -19,6 +20,16 @@ function App() {
   const [currentView, setCurrentView] = useState('loading');
   const [activeRoomId, setActiveRoomId] = useState('');
   const [transitioning, setTransitioning] = useState(false);
+  const { socket } = useSocket();
+
+  useEffect(() => {
+    if (!socket) return;
+    const handleAnnouncement = ({ message }) => {
+      alert(`📢 SYSTEM ANNOUNCEMENT: \n\n${message}`);
+    };
+    socket.on('system-announcement', handleAnnouncement);
+    return () => socket.off('system-announcement', handleAnnouncement);
+  }, [socket]);
 
   const switchView = useCallback((view, roomId = '') => {
     setTransitioning(true);

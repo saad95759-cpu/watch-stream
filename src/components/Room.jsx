@@ -134,6 +134,8 @@ export default function Room({ roomId, onLeave }) {
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [pendingApproval, setPendingApproval] = useState(false);
+  const [promptNameModalOpen, setPromptNameModalOpen] = useState(false);
+  const [promptNameInput, setPromptNameInput] = useState('');
 
   const [requireApprovalSetting, setRequireApprovalSetting] = useState(false);
   const [publicToggleSetting, setPublicToggleSetting] = useState(false);
@@ -156,7 +158,22 @@ export default function Room({ roomId, onLeave }) {
   // Room options dropdown
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
   const [historyDropdownOpen, setHistoryDropdownOpen] = useState(false);
+  const [mediaDropdownOpen, setMediaDropdownOpen] = useState(false);
   const [pinnedMessage, setPinnedMessage] = useState('');
+
+  // Theme — persisted across lobby <-> room
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem('wp-theme') || 'dark'; } catch { return 'dark'; }
+  });
+  useEffect(() => {
+    if (theme === 'light') {
+      document.body.classList.add('light-theme');
+    } else {
+      document.body.classList.remove('light-theme');
+    }
+    try { localStorage.setItem('wp-theme', theme); } catch {}
+  }, [theme]);
+  const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
 
   const canControl = myRole === 'host' || myRole === 'admin' || myRole === 'superadmin';
 
@@ -223,15 +240,44 @@ export default function Room({ roomId, onLeave }) {
     };
 
     const handleJoin = async () => {
+      const myName = localStorage.getItem('wp-name');
+      if (!myName || myName === 'Guest') {
+        setPromptNameModalOpen(true);
+        return;
+      }
+
       const roomToken = sessionStorage.getItem(`wp-room-token-${roomId}`);
       const storedHostKey = sessionStorage.getItem(`wp-host-key-${roomId}`);
       const gps = await fetchGps();
-      const myName = localStorage.getItem('wp-name') || 'Guest';
       const myAvatar = localStorage.getItem('wp-avatar') || '👤';
 
       socket.emit('join', {
         roomId,
         name: myName,
+        token: roomToken || undefined,
+        password: passwordInput || undefined,
+        hostKey: storedHostKey || undefined,
+        clientId: getClientId(),
+        gps,
+        avatar: myAvatar,
+      });
+    };
+
+    const submitPromptName = async (e) => {
+      e.preventDefault();
+      const val = promptNameInput.trim();
+      if (val.length < 3) return alert('Name must be at least 3 characters.');
+      localStorage.setItem('wp-name', val);
+      setPromptNameModalOpen(false);
+      
+      const roomToken = sessionStorage.getItem(`wp-room-token-${roomId}`);
+      const storedHostKey = sessionStorage.getItem(`wp-host-key-${roomId}`);
+      const gps = await fetchGps();
+      const myAvatar = localStorage.getItem('wp-avatar') || '👤';
+
+      socket.emit('join', {
+        roomId,
+        name: val,
         token: roomToken || undefined,
         password: passwordInput || undefined,
         hostKey: storedHostKey || undefined,
@@ -538,7 +584,7 @@ export default function Room({ roomId, onLeave }) {
         await pc.setRemoteDescription(sdp);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        socket.emit('webrtc-answer', { to: from, sdp: pc.localDescription });
+        socket.emit('voip-answer', { to: from, sdp: pc.localDescription });
       } catch (err) {
         console.warn('voip-offer failed', err);
       }
@@ -626,6 +672,22 @@ export default function Room({ roomId, onLeave }) {
       console.warn('createVoipOffer failed', err);
     }
   };
+
+  useEffect(() => {
+    if (voipStream && voipActive) {
+      activeSpeakers.forEach((peerId) => {
+        const pc = voipPeersRef.current.get(peerId);
+        if (pc) {
+          const senders = pc.getSenders();
+          const hasAudio = senders.some((s) => s.track && s.track.kind === 'audio');
+          if (!hasAudio) {
+            voipStream.getTracks().forEach((t) => pc.addTrack(t, voipStream));
+            createVoipOffer(peerId);
+          }
+        }
+      });
+    }
+  }, [voipStream, voipActive, activeSpeakers]);
 
   const toggleMic = async () => {
     if (voipActive) {
@@ -765,45 +827,36 @@ export default function Room({ roomId, onLeave }) {
 
   // extraction workflows
   const handleExtractUrl = async () => {
-    setExtractStatus('Scanning for streams...');
+    setExtractStatus('Extracting streams...');
     setExtractKind('info');
 
     try {
-      const res = await fetch('/watch-party/api/fetch-scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: sourceInput }),
-      });
-      const data = await res.json();
-
-      if (data.youtube && data.videoId) {
-        socket?.emit('set-source', {
-          source: data.videoId,
-          sourceType: 'youtube',
-          sourcePage: sourceInput,
-          title: data.title || 'YouTube Video',
-          thumbnail: data.thumbnail,
-        });
-        setExtractStatus('YouTube video loaded!');
-        setExtractKind('ok');
-        return;
-      }
-
-      if (data.streams && data.streams.length > 0) {
-        setScanResults(data.streams);
-        setPasteModalOpen(true);
-        setExtractStatus('');
-        return;
-      }
-
-      // Fallback
-      setExtractStatus('Deep scanning...');
       const deepRes = await fetch('/watch-party/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: sourceInput }),
       });
       const deepData = await deepRes.json();
+
+      if (deepData.youtube && deepData.videoId) {
+        socket?.emit('set-source', {
+          source: deepData.videoId,
+          sourceType: 'youtube',
+          sourcePage: sourceInput,
+          title: deepData.title || 'YouTube Video',
+          thumbnail: deepData.thumbnail,
+        });
+        setExtractStatus('YouTube video loaded!');
+        setExtractKind('ok');
+        return;
+      }
+
+      if (deepData.allStreams && deepData.allStreams.length > 0) {
+        setScanResults(deepData.allStreams);
+        setPasteModalOpen(true);
+        setExtractStatus('');
+        return;
+      }
 
       if (deepData.streamUrl) {
         socket?.emit('set-source', {
@@ -820,7 +873,7 @@ export default function Room({ roomId, onLeave }) {
         setExtractKind('error');
       }
     } catch (err) {
-      setExtractStatus('Extraction failed.');
+      setExtractStatus(`Network error: ${err.message}`);
       setExtractKind('error');
     }
   };
@@ -1005,6 +1058,74 @@ export default function Room({ roomId, onLeave }) {
         </div>
       </header>
 
+      {/* Options side panel — slides in from right under the header */}
+      {optionsMenuOpen && (
+        <div
+          className="room-options-panel"
+          onClick={(e) => { if (e.target === e.currentTarget) setOptionsMenuOpen(false); }}
+        >
+          <div className="room-options-panel-inner">
+            <div className="room-options-panel-header">
+              <span>⚙️ Options</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => setOptionsMenuOpen(false)}>✕</button>
+            </div>
+
+            <button className="room-option-item" onClick={toggleTheme}>
+              <span className="room-option-icon">{theme === 'light' ? '☀️' : '🌙'}</span>
+              <span>{theme === 'light' ? 'Light Mode' : 'Dark Mode'}</span>
+              <span className="room-option-badge">{theme === 'light' ? 'ON' : 'OFF'}</span>
+            </button>
+
+            <button className="room-option-item" onClick={() => {
+              SoundEffects.enabled = !SoundEffects.enabled;
+              setSpeakerActive(SoundEffects.enabled);
+            }}>
+              <span className="room-option-icon">{speakerActive ? '🔊' : '🔇'}</span>
+              <span>Sound Effects</span>
+              <span className={`room-option-badge ${speakerActive ? 'on' : 'off'}`}>{speakerActive ? 'ON' : 'OFF'}</span>
+            </button>
+
+            <button className="room-option-item" onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}>
+              <span className="room-option-icon">🌐</span>
+              <span>Language</span>
+              <span className="room-option-badge">{lang.toUpperCase()}</span>
+            </button>
+
+            {canControl && (
+              <button className="room-option-item" onClick={() => {
+                setSettingsOpen(true);
+                setOptionsMenuOpen(false);
+              }}>
+                <span className="room-option-icon">🚪</span>
+                <span>Room Settings</span>
+              </button>
+            )}
+
+            {(myRole === 'host' || myRole === 'superadmin') && (
+              <button className="room-option-item" onClick={() => {
+                socket?.emit('set-room-pw', { password: '' });
+                setOptionsMenuOpen(false);
+              }}>
+                <span className="room-option-icon">🔑</span>
+                <span>Password</span>
+              </button>
+            )}
+
+            {(myRole === 'host' || myRole === 'superadmin') && (
+              <button className="room-option-item danger" onClick={() => {
+                if (confirm('Clear all room logs?')) {
+                  socket?.emit('clear-room-logs');
+                }
+                setOptionsMenuOpen(false);
+              }}>
+                <span className="room-option-icon">🗑️</span>
+                <span>Clear Logs</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <main className="room-body">
         <div className="stage">
           <div className="player-shell">
@@ -1021,6 +1142,7 @@ export default function Room({ roomId, onLeave }) {
               onProgress={setCurrentTime}
               onAutoAdvance={() => socket?.emit('queue-next')}
               rtcStream={rtcStream}
+              localStream={localStream}
               isSharingSelf={isSharingSelf}
             />
           </div>
@@ -1082,21 +1204,36 @@ export default function Room({ roomId, onLeave }) {
                 </div>
               </form>
 
-              <div className="share-row">
-                <label className="file-btn btn">
-                  <span>{t('share-file')}</span>
-                  <input id="local-file-input" type="file" accept="video/*" hidden onChange={handleStreamLocalFile} />
-                </label>
-                <button id="share-tab-btn" className="btn" onClick={() => startSharing('tab')}>
-                  {t('share-tab')}
+              <div className="share-row" style={{ position: 'relative' }}>
+                <button 
+                  type="button" 
+                  className="btn btn-ghost" 
+                  onClick={() => setMediaDropdownOpen(!mediaDropdownOpen)}
+                >
+                  📡 Media Controls ▼
                 </button>
-                <button id="share-screen-btn" className="btn" onClick={() => startSharing('screen')}>
-                  {t('share-screen')}
-                </button>
-                {isSharingSelf && (
-                  <button id="stop-share-btn" className="btn btn-danger" onClick={stopSharing}>
-                    {t('share-stop')}
-                  </button>
+                {mediaDropdownOpen && (
+                  <div className="room-options-dropdown" style={{ bottom: '100%', top: 'auto', left: 0, right: 'auto', minWidth: '180px', zIndex: 100, marginBottom: '8px' }}>
+                    <label className="room-option-item">
+                      <span className="room-option-icon">📁</span>
+                      <span>{t('share-file')}</span>
+                      <input id="local-file-input" type="file" accept="video/*" hidden onChange={(e) => { handleStreamLocalFile(e); setMediaDropdownOpen(false); }} />
+                    </label>
+                    <button id="share-tab-btn" className="room-option-item" onClick={() => { startSharing('tab'); setMediaDropdownOpen(false); }}>
+                      <span className="room-option-icon">🌐</span>
+                      <span>{t('share-tab')}</span>
+                    </button>
+                    <button id="share-screen-btn" className="room-option-item" onClick={() => { startSharing('screen'); setMediaDropdownOpen(false); }}>
+                      <span className="room-option-icon">🖥️</span>
+                      <span>{t('share-screen')}</span>
+                    </button>
+                    {isSharingSelf && (
+                      <button id="stop-share-btn" className="room-option-item danger" onClick={() => { stopSharing(); setMediaDropdownOpen(false); }}>
+                        <span className="room-option-icon">🛑</span>
+                        <span>{t('share-stop')}</span>
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
               {extractStatus && (
@@ -1147,6 +1284,30 @@ export default function Room({ roomId, onLeave }) {
               <button id="password-cancel" className="btn" onClick={onLeave}>Cancel</button>
               <button id="password-submit" className="btn btn-primary" onClick={handlePasswordSubmit}>Join</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mandatory Username Prompt */}
+      {promptNameModalOpen && (
+        <div id="prompt-name-modal" className="modal-overlay">
+          <div className="modal-card">
+            <h3>Enter Display Name</h3>
+            <p>Please choose a name to join this room.</p>
+            <form onSubmit={submitPromptName} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <input
+                type="text"
+                placeholder="Display Name..."
+                value={promptNameInput}
+                onChange={(e) => setPromptNameInput(e.target.value)}
+                maxLength={40}
+                autoFocus
+              />
+              <div className="modal-actions">
+                <button type="button" className="btn" onClick={onLeave}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Join Room</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1248,7 +1409,7 @@ export default function Room({ roomId, onLeave }) {
                   placeholder="Paste page HTML source here..."
                   value={pasteHtmlText}
                   onChange={(e) => setPasteHtmlText(e.target.value)}
-                  style={{ width: '100%', height: '150px', background: 'var(--bg-body)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px' }}
+                  style={{ width: '100%', height: '150px', background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px' }}
                 />
                 <button className="btn btn-primary" style={{ width: '100%', marginTop: '8px' }} onClick={handleScanPasteHtml} disabled={scanning}>
                   Find Streams
@@ -1263,7 +1424,7 @@ export default function Room({ roomId, onLeave }) {
             )}
 
             {scanResults && (
-              <div id="scanner-results" style={{ textAlign: 'left', maxHeight: '200px', overflowY: 'auto', background: 'var(--bg-body)', padding: '8px', borderRadius: '8px' }}>
+              <div id="scanner-results" style={{ textAlign: 'left', maxHeight: '200px', overflowY: 'auto', background: 'var(--bg)', padding: '8px', borderRadius: '8px' }}>
                 {scanResults.map((s, idx) => (
                   <button
                     key={idx}

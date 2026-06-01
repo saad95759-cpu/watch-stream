@@ -288,7 +288,7 @@ export default function AdminDashboard({ onBack }) {
                   id="admin-broadcast-input"
                   className="btn"
                   placeholder="Type announcement message here..."
-                  style={{ flex: 1, textAlign: 'left', background: 'var(--bg-body)', border: '1px solid var(--border)', cursor: 'text', color: 'var(--text)' }}
+                  style={{ flex: 1, textAlign: 'left', background: 'var(--bg)', border: '1px solid var(--border)', cursor: 'text', color: 'var(--text)' }}
                   value={announcement}
                   onChange={(e) => setAnnouncement(e.target.value)}
                   onKeyDown={(e) => {
@@ -390,7 +390,7 @@ export default function AdminDashboard({ onBack }) {
         <div id="admin-logs-modal" className="modal-overlay">
           <div className="modal-card" style={{ maxWidth: '600px' }}>
             <h3>Room Logs: <span id="admin-logs-room-id">{logsRoomId}</span></h3>
-            <div id="admin-logs-content" style={{ maxHeight: '400px', overflowY: 'auto', margin: '16px 0', textAlign: 'left', fontSize: '13px', fontFamily: 'monospace', background: 'var(--bg-body)', padding: '8px', borderRadius: '8px' }}>
+            <div id="admin-logs-content" style={{ maxHeight: '400px', overflowY: 'auto', margin: '16px 0', textAlign: 'left', fontSize: '13px', fontFamily: 'monospace', background: 'var(--bg)', padding: '8px', borderRadius: '8px' }}>
               {loadingLogs ? (
                 <p className="hint">Loading logs...</p>
               ) : roomLogs.length === 0 ? (
@@ -440,7 +440,7 @@ export default function AdminDashboard({ onBack }) {
               <input type="text" id="master-search-room" className="btn" placeholder="Search Room ID..." style={{ background: 'var(--bg-elev)', cursor: 'text', flex: 1, border: '1px solid var(--border)' }} value={searchRoomId} onChange={(e) => setSearchRoomId(e.target.value)} />
               <button id="master-fetch-btn" className="btn btn-primary" onClick={handleFetchMasterLogs}>Fetch</button>
             </div>
-            <div id="master-logs-content" style={{ maxHeight: '60vh', overflowY: 'auto', textAlign: 'left', fontSize: '13px', fontFamily: 'monospace', background: 'var(--bg-body)', padding: '8px', borderRadius: '8px' }}>
+            <div id="master-logs-content" style={{ maxHeight: '60vh', overflowY: 'auto', textAlign: 'left', fontSize: '13px', fontFamily: 'monospace', background: 'var(--bg)', padding: '8px', borderRadius: '8px' }}>
               {masterLoading ? (
                 <p className="hint">Fetching...</p>
               ) : masterLogs.length === 0 ? (

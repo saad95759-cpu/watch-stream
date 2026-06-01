@@ -17,6 +17,7 @@ export default function VideoPlayer({
   onProgress,
   onAutoAdvance,
   rtcStream,
+  localStream,
   isSharingSelf,
 }) {
   const { t } = useTranslation();
@@ -251,10 +252,16 @@ export default function VideoPlayer({
   // RTC Screen / Tab share rendering
   useEffect(() => {
     const rtcVideo = rtcVideoRef.current;
-    if (!rtcVideo || sourceType !== 'rtc' || !rtcStream) return;
-    rtcVideo.srcObject = rtcStream;
+    if (!rtcVideo || sourceType !== 'rtc') return;
+    
+    if (isSharingSelf && localStream) {
+      rtcVideo.srcObject = localStream;
+    } else if (!isSharingSelf && rtcStream) {
+      rtcVideo.srcObject = rtcStream;
+    }
+    
     rtcVideo.play().catch(() => {});
-  }, [sourceType, rtcStream]);
+  }, [sourceType, rtcStream, isSharingSelf, localStream]);
 
   const handleQualityChange = (levelId) => {
     if (sourceType === 'hls' && hlsInstance) {
