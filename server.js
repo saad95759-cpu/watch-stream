@@ -134,10 +134,14 @@ const EXTRACT_TTL_MS = 10 * 60 * 1000;
 const EXTRACT_CACHE_MAX = 200;
 
 // Server-side cookie jar: stores cookies from page fetches per domain
-// so the HLS proxy can forward them (needed for PornHub-like sites).
-// Map<string, { cookies: string, t: number }>
+// Map<string, { cookies: string, referer: string, t: number }>
 const domainCookies = new Map();
-const COOKIE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const COOKIE_TTL_MS = 45 * 60 * 1000; // 45 minutes
+
+function storeCookiesForDomain(domain, cookieStr, referer) {
+  const key = domain.replace(/^www\./, "");
+  domainCookies.set(key, { cookies: cookieStr, referer: referer || "", t: Date.now() });
+}
 
 function storeCookiesFromResponse(resp, url) {
   try {
@@ -145,21 +149,21 @@ function storeCookiesFromResponse(resp, url) {
     if (setCookies.length > 0) {
       const domain = new URL(url).hostname.replace(/^www\./, "");
       const cookieStr = setCookies.map((c) => c.split(";")[0]).join("; ");
-      domainCookies.set(domain, { cookies: cookieStr, t: Date.now() });
+      const existing = domainCookies.get(domain);
+      domainCookies.set(domain, { cookies: cookieStr, referer: existing?.referer || "", t: Date.now() });
     }
   } catch { /* ignore */ }
 }
 
 function getCookiesForDomain(hostname) {
   const domain = hostname.replace(/^www\./, "");
-  // Try exact match and parent domains
   for (const [d, entry] of domainCookies) {
     if (Date.now() - entry.t >= COOKIE_TTL_MS) { domainCookies.delete(d); continue; }
     if (domain === d || domain.endsWith("." + d) || d.endsWith("." + domain.split(".").slice(-2).join("."))) {
-      return entry.cookies;
+      return entry;
     }
   }
-  return "";
+  return null;
 }
 
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -549,6 +553,16 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
     if (isJsHost) {
       const browserResult = await browserExtract(url).catch(() => null);
       if (browserResult?.streamUrl) {
+        // Persist session cookies and referer from the headless browser session
+        if (browserResult.cookies) {
+          try {
+            const cdnDomain = new URL(browserResult.streamUrl).hostname.replace(/^www\./, "");
+            storeCookiesForDomain(cdnDomain, browserResult.cookies, browserResult.referer || url);
+            // Also store for the source page domain
+            const srcDomain = new URL(url).hostname.replace(/^www\./, "");
+            storeCookiesForDomain(srcDomain, browserResult.cookies, url);
+          } catch { /* ignore */ }
+        }
         const data = {
           streamUrl: browserResult.streamUrl,
           type: browserResult.type || detectStreamType(browserResult.streamUrl),
@@ -818,22 +832,29 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
 
   try {
     // Forward stored cookies from extraction (needed for PornHub-like CDNs)
-    const storedCookies = getCookiesForDomain(parsed.hostname);
+    const cookieEntry = getCookiesForDomain(parsed.hostname);
+    const storedCookies = typeof cookieEntry === "string" ? cookieEntry : (cookieEntry?.cookies || "");
+    const storedReferer = (typeof cookieEntry === "object" && cookieEntry?.referer) ? cookieEntry.referer : referer;
+
     const proxyHeaders = {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      "Referer": referer,
-      "Origin": (() => { try { return new URL(referer).origin; } catch { return parsed.origin; } })(),
+      "Referer": storedReferer || referer,
+      "Origin": (() => { try { return new URL(storedReferer || referer).origin; } catch { return parsed.origin; } })(),
       "Accept": "*/*",
       "Accept-Language": "en-US,en;q=0.9",
+      "Accept-Encoding": "identity",
     };
     if (storedCookies) proxyHeaders["Cookie"] = storedCookies;
+    // Forward Range header for seekable MP4 streams
+    if (req.headers["range"]) proxyHeaders["Range"] = req.headers["range"];
+
     const upstream = await fetch(rawUrl, {
       headers: proxyHeaders,
       redirect: "follow",
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(25000),
     });
 
-    if (!upstream.ok) return res.status(upstream.status).send(`Upstream ${upstream.status}`);
+    if (!upstream.ok && upstream.status !== 206) return res.status(upstream.status).send(`Upstream ${upstream.status}`);
 
     const ct = upstream.headers.get("content-type") || "";
     const isM3u8 = ct.includes("mpegurl") || ct.includes("x-mpegURL") ||
@@ -850,9 +871,14 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
       return res.send(rewritten);
     }
 
+    res.status(upstream.status);
     res.setHeader("Content-Type", ct || "application/octet-stream");
     const cl = upstream.headers.get("content-length");
     if (cl) res.setHeader("Content-Length", cl);
+    const cr = upstream.headers.get("content-range");
+    if (cr) res.setHeader("Content-Range", cr);
+    const accept = upstream.headers.get("accept-ranges");
+    if (accept) res.setHeader("Accept-Ranges", accept);
     Readable.fromWeb(upstream.body).pipe(res);
   } catch (err) {
     if (!res.headersSent) res.status(502).send("Proxy error: " + err.message);

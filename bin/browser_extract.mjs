@@ -91,11 +91,10 @@ process.on("SIGINT", () => __cleanupAndExit(0));
     __browserRef = browser;
     const ctx = await browser.newContext({
       userAgent:
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
       viewport: { width: 1280, height: 720 },
       locale: "en-US",
       extraHTTPHeaders: { "accept-language": "en-US,en;q=0.9" },
-      // Do not store any cookies/localStorage between requests
       storageState: undefined,
     });
 
@@ -269,6 +268,13 @@ process.on("SIGINT", () => __cleanupAndExit(0));
 
     const durationSec = await extractVideoDuration();
 
+    // Capture all session cookies so the server-side proxy can forward them
+    let cookieHeader = "";
+    try {
+      const pageCookies = await ctx.cookies();
+      cookieHeader = pageCookies.map(c => `${c.name}=${c.value}`).join("; ");
+    } catch { /* ignore */ }
+
     process.stdout.write(
       JSON.stringify({
         streamUrl: pick.url,
@@ -276,6 +282,8 @@ process.on("SIGINT", () => __cleanupAndExit(0));
         title: title || "",
         sizeMb: pick.sizeMb || null,
         durationSec,
+        cookies: cookieHeader || null,
+        referer: url,
       }) + "\n",
     );
   } catch (e) {
