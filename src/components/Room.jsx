@@ -857,23 +857,20 @@ export default function Room({ roomId, onLeave }) {
       return;
     }
 
-    // Bilibili IFrame Bypass (Only for bilibili.com, bilibili.tv is extracted via backend)
-    const biliMatch = url.match(/(?:bilibili\.com\/video\/(BV[\w]+))/i);
-    if (biliMatch) {
-      const bvid = biliMatch[1];
-      let embedUrl = "";
+    // Bilibili IFrame Bypass
+    if (url.includes('bilibili.com') || url.includes('bilibili.tv')) {
+      let bvid = url.match(/(?:bvid=|video\/)(BV[a-zA-Z0-9]+)/)?.[1];
       if (bvid) {
-        embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
+        const embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
+        socket?.emit('set-source', {
+          source: embedUrl,
+          sourceType: 'iframe',
+          sourcePage: url,
+          title: 'Bilibili Video',
+          thumbnail: null,
+        });
+        return;
       }
-      
-      socket?.emit('set-source', {
-        source: embedUrl,
-        sourceType: 'iframe',
-        sourcePage: url,
-        title: 'Bilibili Video',
-        thumbnail: null,
-      });
-      return;
     }
 
     // Auto-detect extension
@@ -924,24 +921,22 @@ export default function Room({ roomId, onLeave }) {
     const targetUrl = typeof overrideUrl === 'string' ? overrideUrl : sourceInput;
     if (!targetUrl.trim()) return;
 
-    // Bilibili IFrame Bypass (Only for bilibili.com, bilibili.tv is extracted via backend)
-    const biliMatch = targetUrl.match(/(?:bilibili\.com\/video\/(BV[\w]+))/i);
-    if (biliMatch) {
-      const bvid = biliMatch[1];
-      let embedUrl = "";
+    // Bilibili IFrame Bypass
+    if (targetUrl.includes('bilibili.com') || targetUrl.includes('bilibili.tv')) {
+      let bvid = targetUrl.match(/(?:bvid=|video\/)(BV[a-zA-Z0-9]+)/)?.[1];
       if (bvid) {
-        embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
+        const embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
+        socket?.emit('set-source', {
+          source: embedUrl,
+          sourceType: 'iframe',
+          sourcePage: targetUrl,
+          title: 'Bilibili Video',
+          thumbnail: null,
+        });
+        setExtractStatus('Bilibili iframe loaded!');
+        setExtractKind('ok');
+        return;
       }
-      socket?.emit('set-source', {
-        source: embedUrl,
-        sourceType: 'iframe',
-        sourcePage: targetUrl,
-        title: 'Bilibili Video',
-        thumbnail: null,
-      });
-      setExtractStatus('Bilibili iframe loaded!');
-      setExtractKind('ok');
-      return;
     }
 
     setExtractStatus('Extracting streams...');
@@ -1010,25 +1005,23 @@ export default function Room({ roomId, onLeave }) {
     setScannerStatus('Scanning for streams...');
     setScannerStatusKind('info');
 
-    // Bilibili IFrame Bypass (Only for bilibili.com, bilibili.tv is extracted via backend)
-    const biliMatch = scannerUrl.match(/(?:bilibili\.com\/video\/(BV[\w]+))/i);
-    if (biliMatch) {
-      const bvid = biliMatch[1];
-      let embedUrl = "";
+    // Bilibili IFrame Bypass
+    if (scannerUrl.includes('bilibili.com') || scannerUrl.includes('bilibili.tv')) {
+      let bvid = scannerUrl.match(/(?:bvid=|video\/)(BV[a-zA-Z0-9]+)/)?.[1];
       if (bvid) {
-        embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
+        const embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
+        socket?.emit('set-source', {
+          source: embedUrl,
+          sourceType: 'iframe',
+          sourcePage: scannerUrl,
+          title: 'Bilibili Video',
+          thumbnail: null,
+        });
+        setPasteModalOpen(false);
+        setScannerStatus('');
+        setScanning(false);
+        return;
       }
-      socket?.emit('set-source', {
-        source: embedUrl,
-        sourceType: 'iframe',
-        sourcePage: scannerUrl,
-        title: 'Bilibili Video',
-        thumbnail: null,
-      });
-      setPasteModalOpen(false);
-      setScannerStatus('');
-      setScanning(false);
-      return;
     }
 
     try {

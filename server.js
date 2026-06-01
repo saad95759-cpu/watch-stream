@@ -530,7 +530,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
   // Skip cache for sites whose CDN URLs have short-lived signed tokens (e.g. Pornhub)
   const hasNativeFreshUrl = YTDLP_NATIVE_HOSTS.some(h => url.toLowerCase().includes(h));
   const cached = extractCache.get(url);
-  if (cached && !hasNativeFreshUrl && Date.now() - cached.t < EXTRACT_TTL_MS) {
+  if (cached && Date.now() - cached.t < EXTRACT_TTL_MS) {
     return res.json(cached.data);
   }
   // If it's a native yt-dlp site (pornhub, youtube, etc.), bypass HTML scan and browser sniffer entirely (unless yt-dlp fails)
@@ -689,7 +689,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           const oldest = extractCache.keys().next().value;
           if (oldest !== undefined) extractCache.delete(oldest);
         }
-        if (!hasNativeFreshUrl) extractCache.set(url, { t: Date.now(), data });
+        extractCache.set(url, { t: Date.now(), data });
         return res.json(data);
       }
     }
@@ -716,7 +716,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           const oldest = extractCache.keys().next().value;
           if (oldest !== undefined) extractCache.delete(oldest);
         }
-        if (!hasNativeFreshUrl) extractCache.set(url, { t: Date.now(), data });
+        extractCache.set(url, { t: Date.now(), data });
         return res.json(data);
       }
     }
@@ -741,7 +741,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
             const oldest = extractCache.keys().next().value;
             if (oldest !== undefined) extractCache.delete(oldest);
           }
-          if (!hasNativeFreshUrl) extractCache.set(url, { t: Date.now(), data });
+          extractCache.set(url, { t: Date.now(), data });
           return res.json(data);
         }
       }
@@ -767,7 +767,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       const oldest = extractCache.keys().next().value;
       if (oldest !== undefined) extractCache.delete(oldest);
     }
-    if (!hasNativeFreshUrl) extractCache.set(url, { t: Date.now(), data });
+    extractCache.set(url, { t: Date.now(), data });
     res.json(data);
   } catch (e) {
     let msg = String(e?.message || "Extraction failed");
@@ -1112,15 +1112,17 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
 
   if (detectDrm(url)) return res.status(200).json({ drm: true, streams: [], error: "DRM-protected site — use Share Browser Tab instead." });
   const isJsHost = JS_STREAMING_HOSTS.some(h => url.toLowerCase().includes(h));
+  const isYtdlpNative = YTDLP_NATIVE_HOSTS.some(h => url.toLowerCase().includes(h));
   if (isJsHost && !isYtdlpNative) {
     return res.status(200).json({ streams: [], error: "Platform requires browser execution — initializing deep extraction..." });
   }
   const safe = await urlIsSafeForExtraction(url);
   if (!safe) return res.status(400).json({ error: "URL host is not allowed." });
 
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
+  if (!isYtdlpNative) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
     const resp = await fetch(url, {
       headers: {
         "User-Agent": BROWSER_UA,
@@ -1154,7 +1156,8 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
         return res.json(result);
       }
     }
-  } catch { /* fall through to yt-dlp */ }
+    } catch { /* fall through to yt-dlp */ }
+  }
 
   try {
     const info = await ytDlpExtract(url);

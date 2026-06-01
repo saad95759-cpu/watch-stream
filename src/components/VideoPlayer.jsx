@@ -79,11 +79,13 @@ export default function VideoPlayer({
 
   // Handle standard HTML5 video, HLS, or DASH lifecycle
   useEffect(() => {
+    setErrorMsg(null);
     const video = videoRef.current;
     if (!video || sourceType === 'youtube' || sourceType === 'rtc' || sourceType === 'iframe' || !source) {
       if (hlsInstance) { hlsInstance.destroy(); setHlsInstance(null); }
       if (dashPlayer) { dashPlayer.destroy(); setDashPlayer(null); }
       if (video) {
+        video.src = '';
         video.removeAttribute('src');
         video.load();
       }
@@ -95,7 +97,6 @@ export default function VideoPlayer({
 
     setLevels([]);
     setCurrentLevel('Auto');
-    setErrorMsg(null);
     setIsLoading(true);
 
     const handleVideoError = (e) => {
@@ -196,8 +197,11 @@ export default function VideoPlayer({
         localDash.destroy();
         setDashPlayer(null);
       }
-      video.removeAttribute('src');
-      video.load();
+      if (videoRef.current) {
+        videoRef.current.src = '';
+        videoRef.current.removeAttribute('src');
+        videoRef.current.load();
+      }
     };
   }, [source, sourceType, sourcePage, proxyToken]);
 
