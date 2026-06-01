@@ -174,20 +174,15 @@ function storeCookiesFromResponse(resp, url) {
 }
 
 function getProxySession(sourceUrl) {
-  const entry = proxySessions.get(sourceUrl);
+  const normSource = sourceUrl.replace(/\/+$/, "");
+  const entry = proxySessions.get(sourceUrl) || proxySessions.get(normSource) || proxySessions.get(sourceUrl + "/");
   if (entry) {
     if (Date.now() - entry.t >= COOKIE_TTL_MS) {
       proxySessions.delete(sourceUrl);
+      proxySessions.delete(normSource);
       return null;
     }
     return entry;
-  }
-  // Fallback match without query params
-  for (const [k, v] of proxySessions) {
-    if (k.split('?')[0] === sourceUrl.split('?')[0]) {
-      if (Date.now() - v.t >= COOKIE_TTL_MS) { proxySessions.delete(k); continue; }
-      return v;
-    }
   }
   return null;
 }

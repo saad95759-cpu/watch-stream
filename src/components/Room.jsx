@@ -923,6 +923,29 @@ export default function Room({ roomId, onLeave }) {
     const targetUrl = typeof overrideUrl === 'string' ? overrideUrl : sourceInput;
     if (!targetUrl.trim()) return;
 
+    // Bilibili IFrame Bypass
+    const biliMatch = targetUrl.match(/(?:bilibili\.com\/video\/(BV[\w]+)|bilibili\.tv\/en\/video\/(\d+))/i);
+    if (biliMatch) {
+      const bvid = biliMatch[1];
+      const tvId = biliMatch[2];
+      let embedUrl = "";
+      if (bvid) {
+        embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1`;
+      } else if (tvId) {
+        embedUrl = `https://www.bilibili.tv/en/embed/${tvId}`;
+      }
+      socket?.emit('set-source', {
+        source: embedUrl,
+        sourceType: 'iframe',
+        sourcePage: targetUrl,
+        title: 'Bilibili Video',
+        thumbnail: null,
+      });
+      setExtractStatus('Bilibili iframe loaded!');
+      setExtractKind('ok');
+      return;
+    }
+
     setExtractStatus('Extracting streams...');
     setExtractKind('info');
 
@@ -986,6 +1009,30 @@ export default function Room({ roomId, onLeave }) {
     setScanning(true);
     setScannerStatus('Scanning for streams...');
     setScannerStatusKind('info');
+
+    // Bilibili IFrame Bypass
+    const biliMatch = scannerUrl.match(/(?:bilibili\.com\/video\/(BV[\w]+)|bilibili\.tv\/en\/video\/(\d+))/i);
+    if (biliMatch) {
+      const bvid = biliMatch[1];
+      const tvId = biliMatch[2];
+      let embedUrl = "";
+      if (bvid) {
+        embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1`;
+      } else if (tvId) {
+        embedUrl = `https://www.bilibili.tv/en/embed/${tvId}`;
+      }
+      socket?.emit('set-source', {
+        source: embedUrl,
+        sourceType: 'iframe',
+        sourcePage: scannerUrl,
+        title: 'Bilibili Video',
+        thumbnail: null,
+      });
+      setPasteModalOpen(false);
+      setScannerStatus('');
+      setScanning(false);
+      return;
+    }
 
     try {
       const res = await fetch('/watch-party/api/fetch-scan', {
