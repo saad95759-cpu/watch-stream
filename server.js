@@ -490,10 +490,6 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
     if (vId) return res.json({ youtube: true, videoId: vId, title: "YouTube Video" });
   }
 
-  // Bilibili uses proprietary MSE segments and blocks embedding/scraping
-  if (url.includes("bilibili.tv") || url.includes("bilibili.com")) {
-    return res.status(200).json({ drm: true, error: "Bilibili content is heavily protected. Please use the 'Share browser tab' button to watch it." });
-  }
 
   // Handle Twitch directly via iframe instead of scraping if we wanted, but let's stick to extraction for now.
   if (detectDrm(url)) {
@@ -515,45 +511,78 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
   if (cached && !hasNativeFreshUrl && Date.now() - cached.t < EXTRACT_TTL_MS) {
     return res.json(cached.data);
   }
-  // If it's a native yt-dlp site (pornhub, youtube, etc.), bypass HTML scan and browser sniffer entirely
+  // If it's a native yt-dlp site (pornhub, youtube, etc.), bypass HTML scan and browser sniffer entirely (unless yt-dlp fails)
   if (hasNativeFreshUrl) {
+    let extractionError = null;
     try {
       const info = await ytDlpExtract(url);
       const best = pickBestStream(info);
-      if (!best || !best.url) {
-        return res.status(422).json({ error: "No playable stream found." });
+      if (best && best.url) {
+        const data = {
+          streamUrl: best.url,
+          type: best.type,
+          title: info?.title || null,
+          duration: info?.duration || null,
+          isLive: !info?.is_live,
+          thumbnail: info?.thumbnail || null,
+          sourcePage: url,
+        };
+        return res.json(data);
       }
-      const data = {
-        streamUrl: best.url,
-        type: best.type,
-        title: info?.title || null,
-        duration: info?.duration || null,
-        isLive: !info?.is_live,
-        thumbnail: info?.thumbnail || null,
-        sourcePage: url,
-      };
-      return res.json(data);
     } catch (e) {
-      let msg = String(e?.message || "Extraction failed");
-      let code = e?.code || "EXTRACTION_FAILED";
-      if (e?.code === "EXTRACTOR_BUSY") {
-        return res.status(429).json({ error: msg, code });
-      }
-      if (/drm|widevine|fairplay|playready/i.test(msg)) {
-        return res.status(200).json({ drm: true, code: "DRM_PROTECTED", error: "This content is DRM-protected. Use \"Share Browser Tab\" to stream it instead." });
-      }
-      if (/timeout|aborted/i.test(msg)) {
-        code = "EXTRACTION_TIMEOUT";
-        msg = "The extraction request timed out. The website is slow or blocking our server. Try a direct .m3u8/.mp4 URL instead.";
-      } else if (/Unable to extract|unsupported url/i.test(msg)) {
-        code = "UNSUPPORTED_URL";
-        msg = "This site's video format isn't supported. The extractor can't find the stream — try a direct .mp4/.m3u8 URL instead.";
-      } else if (/No video stream detected/i.test(msg)) {
-        code = "NO_STREAM_FOUND";
-        msg = "No video stream was detected on the page. The stream may require authentication or be geo-restricted.";
-      }
-      return res.status(422).json({ error: msg, code });
+      extractionError = e;
+      console.warn("[Extract] yt-dlp failed for native host, trying browser fallback...", e.message);
     }
+
+    // Try browser/playwright fallback if yt-dlp failed
+    try {
+      const browserResult = await browserExtract(url);
+      if (browserResult?.streamUrl) {
+        if (browserResult.cookies) {
+          try {
+            const cdnDomain = new URL(browserResult.streamUrl).hostname.replace(/^www\./, "");
+            storeCookiesForDomain(cdnDomain, browserResult.cookies, browserResult.referer || url);
+            const srcDomain = new URL(url).hostname.replace(/^www\./, "");
+            storeCookiesForDomain(srcDomain, browserResult.cookies, url);
+          } catch { /* ignore */ }
+        }
+        const data = {
+          streamUrl: browserResult.streamUrl,
+          type: browserResult.type || detectStreamType(browserResult.streamUrl),
+          title: browserResult.title || "Extracted Stream",
+          duration: browserResult.durationSec || null,
+          isLive: false,
+          thumbnail: null,
+          sourcePage: url,
+        };
+        return res.json(data);
+      }
+    } catch (browserErr) {
+      console.error("[Extract] Browser fallback also failed:", browserErr.message);
+      if (!extractionError) extractionError = browserErr;
+    }
+
+    // Format error response
+    const e = extractionError || new Error("Extraction failed");
+    let msg = String(e?.message || "Extraction failed");
+    let code = e?.code || "EXTRACTION_FAILED";
+    if (e?.code === "EXTRACTOR_BUSY") {
+      return res.status(429).json({ error: msg, code });
+    }
+    if (/drm|widevine|fairplay|playready/i.test(msg)) {
+      return res.status(200).json({ drm: true, code: "DRM_PROTECTED", error: "This content is DRM-protected. Use \"Share Browser Tab\" to stream it instead." });
+    }
+    if (/timeout|aborted/i.test(msg)) {
+      code = "EXTRACTION_TIMEOUT";
+      msg = "The extraction request timed out. The website is slow or blocking our server. Try a direct .m3u8/.mp4 URL instead.";
+    } else if (/Unable to extract|unsupported url/i.test(msg)) {
+      code = "UNSUPPORTED_URL";
+      msg = "This site's video format isn't supported. The extractor can't find the stream — try a direct .mp4/.m3u8 URL instead.";
+    } else if (/No video stream detected/i.test(msg)) {
+      code = "NO_STREAM_FOUND";
+      msg = "No video stream was detected on the page. The stream may require authentication or be geo-restricted.";
+    }
+    return res.status(422).json({ error: msg, code });
   }
 
   try {
