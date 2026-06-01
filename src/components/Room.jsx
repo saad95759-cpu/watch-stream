@@ -859,15 +859,22 @@ export default function Room({ roomId, onLeave }) {
 
     // Bilibili IFrame Bypass
     if (url.includes('bilibili.com') || url.includes('bilibili.tv')) {
+      // bilibili.com with BVID → official player embed
       let bvid = url.match(/(?:bvid=|video\/)(BV[a-zA-Z0-9]+)/)?.[1];
       if (bvid) {
-        const embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
         socket?.emit('set-source', {
-          source: embedUrl,
-          sourceType: 'iframe',
-          sourcePage: url,
-          title: 'Bilibili Video',
-          thumbnail: null,
+          source: `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`,
+          sourceType: 'iframe', sourcePage: url, title: 'Bilibili Video', thumbnail: null,
+        });
+        return;
+      }
+      // bilibili.tv with numeric episode ID → load clean page as iframe
+      const tvMatch = url.match(/bilibili\.tv\/[^/]+\/(?:video|play)\/(\d+)/i);
+      if (tvMatch) {
+        const cleanUrl = `https://www.bilibili.tv/en/video/${tvMatch[1]}`;
+        socket?.emit('set-source', {
+          source: cleanUrl,
+          sourceType: 'iframe', sourcePage: url, title: 'Bilibili Video', thumbnail: null,
         });
         return;
       }
@@ -925,17 +932,20 @@ export default function Room({ roomId, onLeave }) {
     if (targetUrl.includes('bilibili.com') || targetUrl.includes('bilibili.tv')) {
       let bvid = targetUrl.match(/(?:bvid=|video\/)(BV[a-zA-Z0-9]+)/)?.[1];
       if (bvid) {
-        const embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
         socket?.emit('set-source', {
-          source: embedUrl,
-          sourceType: 'iframe',
-          sourcePage: targetUrl,
-          title: 'Bilibili Video',
-          thumbnail: null,
+          source: `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`,
+          sourceType: 'iframe', sourcePage: targetUrl, title: 'Bilibili Video', thumbnail: null,
         });
-        setExtractStatus('Bilibili iframe loaded!');
-        setExtractKind('ok');
-        return;
+        setExtractStatus('Bilibili iframe loaded!'); setExtractKind('ok'); return;
+      }
+      const tvMatch = targetUrl.match(/bilibili\.tv\/[^/]+\/(?:video|play)\/(\d+)/i);
+      if (tvMatch) {
+        const cleanUrl = `https://www.bilibili.tv/en/video/${tvMatch[1]}`;
+        socket?.emit('set-source', {
+          source: cleanUrl,
+          sourceType: 'iframe', sourcePage: targetUrl, title: 'Bilibili Video', thumbnail: null,
+        });
+        setExtractStatus('Bilibili iframe loaded!'); setExtractKind('ok'); return;
       }
     }
 
@@ -1009,18 +1019,20 @@ export default function Room({ roomId, onLeave }) {
     if (scannerUrl.includes('bilibili.com') || scannerUrl.includes('bilibili.tv')) {
       let bvid = scannerUrl.match(/(?:bvid=|video\/)(BV[a-zA-Z0-9]+)/)?.[1];
       if (bvid) {
-        const embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
         socket?.emit('set-source', {
-          source: embedUrl,
-          sourceType: 'iframe',
-          sourcePage: scannerUrl,
-          title: 'Bilibili Video',
-          thumbnail: null,
+          source: `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`,
+          sourceType: 'iframe', sourcePage: scannerUrl, title: 'Bilibili Video', thumbnail: null,
         });
-        setPasteModalOpen(false);
-        setScannerStatus('');
-        setScanning(false);
-        return;
+        setPasteModalOpen(false); setScannerStatus(''); setScanning(false); return;
+      }
+      const tvMatch = scannerUrl.match(/bilibili\.tv\/[^/]+\/(?:video|play)\/(\d+)/i);
+      if (tvMatch) {
+        const cleanUrl = `https://www.bilibili.tv/en/video/${tvMatch[1]}`;
+        socket?.emit('set-source', {
+          source: cleanUrl,
+          sourceType: 'iframe', sourcePage: scannerUrl, title: 'Bilibili Video', thumbnail: null,
+        });
+        setPasteModalOpen(false); setScannerStatus(''); setScanning(false); return;
       }
     }
 
