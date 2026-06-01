@@ -174,7 +174,7 @@ process.on("SIGINT", () => __cleanupAndExit(0));
         return route.abort();
       }
       
-      if (rt === "image" || rt === "font" || rt === "stylesheet") return route.abort();
+      if (rt === "image" || rt === "font") return route.abort();
       return route.continue();
     });
 

@@ -531,10 +531,46 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       }
     } catch (e) {
       extractionError = e;
-      console.warn("[Extract] yt-dlp failed for native host, trying browser fallback...", e.message);
+      console.warn("[Extract] yt-dlp failed for native host, trying fast HTML scan fallback...", e.message);
     }
 
-    // Try browser/playwright fallback if yt-dlp failed
+    // Try fast HTML fetch + regex scan fallback if yt-dlp failed
+    try {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 10000);
+      const resp = await fetch(url, {
+        headers: {
+          "User-Agent": BROWSER_UA,
+          "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Referer": (() => { try { return new URL(url).origin + "/"; } catch { return url; } })(),
+        },
+        signal: controller.signal,
+      });
+      if (resp.ok) {
+        storeCookiesFromResponse(resp, url);
+        const html = await resp.text();
+        const scanned = scanHtmlForStreams(html);
+        if (scanned.streams && scanned.streams.length > 0) {
+          const best = scanned.streams[0];
+          const data = {
+            streamUrl: best.url,
+            type: best.type,
+            title: scanned.title || null,
+            duration: null,
+            isLive: false,
+            thumbnail: scanned.thumbnail || null,
+            sourcePage: scanned.sourcePage || url,
+            allStreams: scanned.streams,
+          };
+          return res.json(data);
+        }
+      }
+    } catch (fetchErr) {
+      console.warn("[Extract] Fast HTML scan fallback failed:", fetchErr.message);
+    }
+
+    // Try browser/playwright fallback if fast HTML scan also failed
     try {
       const browserResult = await browserExtract(url);
       if (browserResult?.streamUrl) {
