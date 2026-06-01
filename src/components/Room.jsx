@@ -858,7 +858,7 @@ export default function Room({ roomId, onLeave }) {
     }
 
     // Bilibili IFrame Bypass
-    const biliMatch = url.match(/(?:bilibili\.com\/video\/(BV[\w]+)|bilibili\.tv\/en\/video\/(\d+))/i);
+    const biliMatch = url.match(/(?:bilibili\.com\/video\/(BV[\w]+)|bilibili\.tv\/en\/(?:video|play)\/(\d+))/i);
     if (biliMatch) {
       const bvid = biliMatch[1];
       const tvId = biliMatch[2];
@@ -866,7 +866,7 @@ export default function Room({ roomId, onLeave }) {
       if (bvid) {
         embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
       } else if (tvId) {
-        embedUrl = `https://www.bilibili.tv/en/embed/${tvId}`;
+        embedUrl = `https://www.bilibili.tv/en/play/${tvId}`;
       }
       
       socket?.emit('set-source', {
@@ -928,7 +928,7 @@ export default function Room({ roomId, onLeave }) {
     if (!targetUrl.trim()) return;
 
     // Bilibili IFrame Bypass
-    const biliMatch = targetUrl.match(/(?:bilibili\.com\/video\/(BV[\w]+)|bilibili\.tv\/en\/video\/(\d+))/i);
+    const biliMatch = targetUrl.match(/(?:bilibili\.com\/video\/(BV[\w]+)|bilibili\.tv\/en\/(?:video|play)\/(\d+))/i);
     if (biliMatch) {
       const bvid = biliMatch[1];
       const tvId = biliMatch[2];
@@ -936,7 +936,7 @@ export default function Room({ roomId, onLeave }) {
       if (bvid) {
         embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
       } else if (tvId) {
-        embedUrl = `https://www.bilibili.tv/en/embed/${tvId}`;
+        embedUrl = `https://www.bilibili.tv/en/play/${tvId}`;
       }
       socket?.emit('set-source', {
         source: embedUrl,
@@ -1017,7 +1017,7 @@ export default function Room({ roomId, onLeave }) {
     setScannerStatusKind('info');
 
     // Bilibili IFrame Bypass
-    const biliMatch = scannerUrl.match(/(?:bilibili\.com\/video\/(BV[\w]+)|bilibili\.tv\/en\/video\/(\d+))/i);
+    const biliMatch = scannerUrl.match(/(?:bilibili\.com\/video\/(BV[\w]+)|bilibili\.tv\/en\/(?:video|play)\/(\d+))/i);
     if (biliMatch) {
       const bvid = biliMatch[1];
       const tvId = biliMatch[2];
@@ -1025,7 +1025,7 @@ export default function Room({ roomId, onLeave }) {
       if (bvid) {
         embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`;
       } else if (tvId) {
-        embedUrl = `https://www.bilibili.tv/en/embed/${tvId}`;
+        embedUrl = `https://www.bilibili.tv/en/play/${tvId}`;
       }
       socket?.emit('set-source', {
         source: embedUrl,

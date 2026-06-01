@@ -402,6 +402,7 @@ export default function VideoPlayer({
           className="player iframe-player"
           style={{ width: '100%', height: '100%', border: 'none', position: 'absolute', top: 0, left: 0 }}
           allow="autoplay; encrypted-media; fullscreen"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
           allowFullScreen
         />
       )}
