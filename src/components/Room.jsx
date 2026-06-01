@@ -1148,6 +1148,7 @@ export default function Room({ roomId, onLeave }) {
               hostSocketId={hostSocketId}
               myId={myId}
               onProgress={setCurrentTime}
+              onPlayStateChange={setIsPlaying}
               onAutoAdvance={() => socket?.emit('queue-next')}
               rtcStream={rtcStream}
               localStream={localStream}

@@ -15,6 +15,7 @@ export default function VideoPlayer({
   hostSocketId,
   myId,
   onProgress,
+  onPlayStateChange,
   onAutoAdvance,
   rtcStream,
   localStream,
@@ -140,6 +141,13 @@ export default function VideoPlayer({
       return;
     }
 
+    if (!window.YT) {
+      const script = document.createElement('script');
+      script.src = 'https://www.youtube.com/iframe_api';
+      script.async = true;
+      document.body.appendChild(script);
+    }
+
     let playerInstance = null;
     const initYt = () => {
       if (!window.YT || !window.YT.Player) {
@@ -244,6 +252,9 @@ export default function VideoPlayer({
       });
 
       onProgress(time);
+      if (onPlayStateChange) {
+        onPlayStateChange(playing);
+      }
     }, 1000);
 
     return () => clearInterval(interval);
@@ -307,14 +318,11 @@ export default function VideoPlayer({
         />
       )}
 
-      {/* YouTube Player */}
+      {/* YouTube Player Wrapper */}
       {source && sourceType === 'youtube' && (
-        <div
-          ref={ytContainerRef}
-          id="yt-player"
-          className="player yt-player"
-          style={{ pointerEvents: canControl ? 'auto' : 'none' }}
-        />
+        <div className="player yt-player" style={{ pointerEvents: canControl ? 'auto' : 'none', width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}>
+          <div ref={ytContainerRef} id="yt-player" style={{ width: '100%', height: '100%' }} />
+        </div>
       )}
 
       {/* RTC Screen Sharing Player */}
