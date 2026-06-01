@@ -100,7 +100,7 @@ const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 const JS_STREAMING_HOSTS = [
   "abyssplayer", "abysscdn", "turbovid", "anafast", "vidspeed", 
   "vidoba", "krakenfiles", "vidsonic", "byselapuix", "minochinos", "savefiles",
-  "hgcloud"
+  "hgcloud", "bilibili"
 ];
 
 
@@ -1036,7 +1036,7 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
      console.log(`[Proxy] Mapped cookies length: ${storedCookies ? storedCookies.length : 0}`);
      console.log(`[Proxy] Mapped User-Agent: ${storedUserAgent || 'None'}`);
 
-     const isPh = parsed.hostname.includes("pornhub.com") || parsed.hostname.includes("phncdn.com");
+     const isBypassIpHeaders = parsed.hostname.includes("pornhub.com") || parsed.hostname.includes("phncdn.com") || parsed.hostname.includes("bilibili") || parsed.hostname.includes("bstar") || parsed.hostname.includes("akamaized");
      const proxyHeaders = {
        "User-Agent": storedUserAgent || req.headers["user-agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
        "Referer": storedReferer || referer,
@@ -1045,7 +1045,7 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
        "Accept-Language": "en-US,en;q=0.9",
        "Accept-Encoding": "identity",
      };
-     if (!isPh) {
+     if (!isBypassIpHeaders) {
        proxyHeaders["X-Forwarded-For"] = req.headers["x-forwarded-for"] || req.ip || req.socket.remoteAddress;
        proxyHeaders["X-Real-IP"] = req.headers["x-real-ip"] || req.socket.remoteAddress;
      }
