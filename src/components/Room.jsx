@@ -798,8 +798,15 @@ export default function Room({ roomId, onLeave }) {
     }
 
     // Auto-detect extension
-    let type = 'mp4';
     const cleanUrl = url.toLowerCase().split('?')[0].split('#')[0];
+    const isDirectMedia = cleanUrl.endsWith('.m3u8') || cleanUrl.endsWith('.m3u') || cleanUrl.endsWith('.mp4') || cleanUrl.endsWith('.webm') || cleanUrl.endsWith('.mkv') || cleanUrl.endsWith('.mpd') || /\/manifest\.(m3u8|mpd)/i.test(url) || /format=(m3u8|mpd)/i.test(url);
+    
+    if (!isDirectMedia) {
+      handleExtractUrl(url);
+      return;
+    }
+
+    let type = 'mp4';
     if (cleanUrl.endsWith('.m3u8') || cleanUrl.endsWith('.m3u') || /\/manifest\.m3u8/i.test(url) || /format=m3u8/i.test(url)) {
       type = 'hls';
     } else if (cleanUrl.endsWith('.mpd') || /\/manifest\.mpd/i.test(url) || /format=mpd/i.test(url)) {
@@ -834,7 +841,10 @@ export default function Room({ roomId, onLeave }) {
   };
 
   // extraction workflows
-  const handleExtractUrl = async () => {
+  const handleExtractUrl = async (overrideUrl) => {
+    const targetUrl = typeof overrideUrl === 'string' ? overrideUrl : sourceInput;
+    if (!targetUrl.trim()) return;
+
     setExtractStatus('Extracting streams...');
     setExtractKind('info');
 
@@ -842,7 +852,7 @@ export default function Room({ roomId, onLeave }) {
       const deepRes = await fetch('/watch-party/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: sourceInput }),
+        body: JSON.stringify({ url: targetUrl }),
       });
       const deepData = await deepRes.json();
 
@@ -850,7 +860,7 @@ export default function Room({ roomId, onLeave }) {
         socket?.emit('set-source', {
           source: deepData.videoId,
           sourceType: 'youtube',
-          sourcePage: sourceInput,
+          sourcePage: targetUrl,
           title: deepData.title || 'YouTube Video',
           thumbnail: deepData.thumbnail,
         });
@@ -867,10 +877,11 @@ export default function Room({ roomId, onLeave }) {
       }
 
       if (deepData.streamUrl) {
+        const proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(deepData.streamUrl)}&ref=${encodeURIComponent(targetUrl)}`;
         socket?.emit('set-source', {
-          source: deepData.streamUrl,
+          source: proxiedUrl,
           sourceType: deepData.type || 'mp4',
-          sourcePage: sourceInput,
+          sourcePage: targetUrl,
           title: deepData.title,
           thumbnail: deepData.thumbnail,
         });
