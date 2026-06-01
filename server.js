@@ -972,20 +972,32 @@ function parsePastedHtml(html) {
   return { streamUrl: best.url, type: best.type, title, sourcePage, allStreams: streams, thumbnail };
 }
 
+function resolveUrl(urlStr, baseUrlStr) {
+  try {
+    const resolved = new URL(urlStr, baseUrlStr);
+    const base = new URL(baseUrlStr);
+    if (!resolved.search && base.search) {
+      resolved.search = base.search;
+    }
+    return resolved.href;
+  } catch {
+    return urlStr;
+  }
+}
+
 function rewriteM3u8(text, baseUrl, proxyPath, ref) {
-  const base = new URL(baseUrl);
   const mkProxyUrl = (abs) =>
     `${proxyPath}?url=${encodeURIComponent(abs)}&ref=${encodeURIComponent(ref)}`;
   return text.split("\n").map((line) => {
     const trimmed = line.trim();
     if (trimmed.startsWith("#")) {
       return line.replace(/URI="([^"]+)"/g, (_m, uri) => {
-        const abs = new URL(uri, base).toString();
+        const abs = resolveUrl(uri, baseUrl);
         return `URI="${mkProxyUrl(abs)}"`;
       });
     }
     if (!trimmed) return line;
-    const abs = new URL(trimmed, base).toString();
+    const abs = resolveUrl(trimmed, baseUrl);
     return mkProxyUrl(abs);
   }).join("\n");
 }
@@ -1034,6 +1046,7 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
     // Forward Range header for seekable MP4 streams
     if (req.headers["range"]) proxyHeaders["Range"] = req.headers["range"];
 
+    console.log('Proxy fetching fragment:', rawUrl);
     const upstream = await fetch(rawUrl, {
       headers: proxyHeaders,
       redirect: "follow",
