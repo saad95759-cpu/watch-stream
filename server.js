@@ -611,58 +611,62 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
     }
   }
 
-  try {
-    const controller = new AbortController();
-    const fetchTimeout = (typeof hasNativeFreshUrl !== 'undefined' && hasNativeFreshUrl) ? 25000 : 10000;
-    setTimeout(() => controller.abort(), fetchTimeout);
-    const resp = await fetch(url, {
-      headers: {
-        "User-Agent": BROWSER_UA,
-        "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": (() => { try { return new URL(url).origin + "/"; } catch { return url; } })(),
-      },
-      signal: controller.signal,
-    });
-    if (resp.ok) {
-      const cookies = storeCookiesFromResponse(resp);
-      const html = await resp.text();
-      
-      const iframeUrl = findVideoIframe(html);
-      if (iframeUrl) {
-        let resolvedIframeUrl = iframeUrl;
-        try { resolvedIframeUrl = new URL(iframeUrl, url).href; } catch {}
-        url = resolvedIframeUrl;
-        const isJsIframe = JS_STREAMING_HOSTS.some(h => resolvedIframeUrl.toLowerCase().includes(h));
-        if (isJsIframe) {
-          throw new Error("Redirect to JS iframe browser extractor");
+  // HTML scan for NON-native hosts only (pornhub etc. already handled above)
+  if (!hasNativeFreshUrl) {
+    try {
+      const controller = new AbortController();
+      const fetchTimeout = 10000;
+      setTimeout(() => controller.abort(), fetchTimeout);
+      const resp = await fetch(url, {
+        headers: {
+          "User-Agent": BROWSER_UA,
+          "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Referer": (() => { try { return new URL(url).origin + "/"; } catch { return url; } })(),
+        },
+        signal: controller.signal,
+      });
+      if (resp.ok) {
+        const cookies = storeCookiesFromResponse(resp);
+        const html = await resp.text();
+        
+        const iframeUrl = findVideoIframe(html);
+        let effectiveUrl = url;
+        if (iframeUrl) {
+          let resolvedIframeUrl = iframeUrl;
+          try { resolvedIframeUrl = new URL(iframeUrl, url).href; } catch {}
+          effectiveUrl = resolvedIframeUrl;
+          const isJsIframe = JS_STREAMING_HOSTS.some(h => resolvedIframeUrl.toLowerCase().includes(h));
+          if (isJsIframe) {
+            throw new Error("Redirect to JS iframe browser extractor");
+          }
         }
-      }
 
-      const scanned = scanHtmlForStreams(html);
-      if (scanned.streams && scanned.streams.length > 0) {
-        const token = storeProxySession(cookies, url, BROWSER_UA);
-        const best = scanned.streams[0];
-        const data = {
-          streamUrl: best.url,
-          type: best.type,
-          title: scanned.title || null,
-          duration: null,
-          isLive: false,
-          thumbnail: null,
-          sourcePage: scanned.sourcePage || url,
-          allStreams: scanned.streams,
-          proxyToken: token,
-        };
-        if (extractCache.size >= EXTRACT_CACHE_MAX) {
-          const oldest = extractCache.keys().next().value;
-          if (oldest !== undefined) extractCache.delete(oldest);
+        const scanned = scanHtmlForStreams(html);
+        if (scanned.streams && scanned.streams.length > 0) {
+          const token = storeProxySession(cookies, effectiveUrl, BROWSER_UA);
+          const best = scanned.streams[0];
+          const data = {
+            streamUrl: best.url,
+            type: best.type,
+            title: scanned.title || null,
+            duration: null,
+            isLive: false,
+            thumbnail: null,
+            sourcePage: scanned.sourcePage || effectiveUrl,
+            allStreams: scanned.streams,
+            proxyToken: token,
+          };
+          if (extractCache.size >= EXTRACT_CACHE_MAX) {
+            const oldest = extractCache.keys().next().value;
+            if (oldest !== undefined) extractCache.delete(oldest);
+          }
+          extractCache.set(url, { t: Date.now(), data });
+          return res.json(data);
         }
-        extractCache.set(url, { t: Date.now(), data });
-        return res.json(data);
       }
-    }
-  } catch { /* fall through to yt-dlp */ }
+    } catch { /* fall through to yt-dlp */ }
+  }
   const isJsHost = JS_STREAMING_HOSTS.some(h => url.toLowerCase().includes(h));
   const isYtdlpNative = YTDLP_NATIVE_HOSTS.some(h => url.toLowerCase().includes(h));
   try {
