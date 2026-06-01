@@ -80,16 +80,19 @@ export default function VideoPlayer({
   // Handle standard HTML5 video, HLS, or DASH lifecycle
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || sourceType === 'youtube' || sourceType === 'rtc' || !source) {
-      // Clean up previous HLS/DASH instances
+    if (!video || sourceType === 'youtube' || sourceType === 'rtc' || sourceType === 'iframe' || !source) {
       if (hlsInstance) { hlsInstance.destroy(); setHlsInstance(null); }
       if (dashPlayer) { dashPlayer.destroy(); setDashPlayer(null); }
+      if (video) {
+        video.removeAttribute('src');
+        video.load();
+      }
       return;
     }
 
-    // Cleanup first
-    if (hlsInstance) { hlsInstance.destroy(); setHlsInstance(null); }
-    if (dashPlayer) { dashPlayer.destroy(); setDashPlayer(null); }
+    let localHls = null;
+    let localDash = null;
+
     setLevels([]);
     setCurrentLevel('Auto');
     setErrorMsg(null);
@@ -99,7 +102,7 @@ export default function VideoPlayer({
       const code = e?.target?.error?.code;
       const msg = e?.target?.error?.message || '';
       setIsLoading(false);
-      setErrorMsg(`Playback error (code ${code}): ${msg || 'Stream could not be loaded. Try extracting again or use the Share Tab.'}`);
+      setErrorMsg(`Playback error (code ${code}): ${msg || 'Stream could not be loaded.'}`);
     };
     video.addEventListener('error', handleVideoError);
 
@@ -107,91 +110,96 @@ export default function VideoPlayer({
     video.addEventListener('canplay', handleCanPlay);
 
     if (sourceType === 'hls') {
-      // Always proxy external HLS to bypass CORS restrictions
       const finalUrl = proxyUrl(source);
       console.log('Attempting to load stream:', finalUrl);
 
       if (window.Hls && window.Hls.isSupported()) {
-        const hls = new window.Hls({
+        localHls = new window.Hls({
           maxMaxBufferLength: 10,
           enableWorker: true,
           lowLatencyMode: true,
         });
-        console.log('Attempting to load stream:', finalUrl);
-        hls.loadSource(finalUrl);
-        hls.attachMedia(video);
-        hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
+        localHls.loadSource(finalUrl);
+        localHls.attachMedia(video);
+        localHls.on(window.Hls.Events.MANIFEST_PARSED, () => {
           setIsLoading(false);
-          const lvs = hls.levels.map((lvl, index) => ({
+          const lvs = localHls.levels.map((lvl, index) => ({
             id: index,
             name: lvl.height ? `${lvl.height}p` : `Level ${index}`,
           }));
           setLevels(lvs);
         });
-        hls.on(window.Hls.Events.LEVEL_SWITCHED, (_, data) => {
-          if (hls.autoLevelEnabled) {
+        localHls.on(window.Hls.Events.LEVEL_SWITCHED, (_, data) => {
+          if (localHls.autoLevelEnabled) {
             setCurrentLevel('Auto');
           } else {
-            const currentLvl = hls.levels[data.level];
+            const currentLvl = localHls.levels[data.level];
             setCurrentLevel(currentLvl?.height ? `${currentLvl.height}p` : `Level ${data.level}`);
           }
         });
-        hls.on(window.Hls.Events.ERROR, (_, data) => {
+        localHls.on(window.Hls.Events.ERROR, (_, data) => {
           console.error('[VideoPlayer] HLS error:', data.type, data.details, data);
           if (data.fatal) {
             setIsLoading(false);
             setErrorMsg(data.type + " - " + data.details);
-            try { hls.destroy(); } catch {}
+            try { localHls.destroy(); } catch {}
             setHlsInstance(null);
           }
         });
-        setHlsInstance(hls);
+        setHlsInstance(localHls);
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari native HLS — still proxy it
         video.src = finalUrl;
       }
     } else if (sourceType === 'dash') {
       const finalUrl = proxyUrl(source);
       console.log('[VideoPlayer] Attempting DASH load:', finalUrl);
       if (window.dashjs) {
-        const player = window.dashjs.MediaPlayer().create();
-        player.initialize(video, finalUrl, false);
-        player.on(window.dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+        localDash = window.dashjs.MediaPlayer().create();
+        localDash.initialize(video, finalUrl, false);
+        localDash.on(window.dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
           setIsLoading(false);
-          const bitrates = player.getBitrateInfoListFor('video') || [];
+          const bitrates = localDash.getBitrateInfoListFor('video') || [];
           const lvs = bitrates.map((b, index) => ({
             id: index,
             name: b.height ? `${b.height}p` : `Level ${index}`,
           }));
           setLevels(lvs);
         });
-        player.on(window.dashjs.MediaPlayer.events.ERROR, (e) => {
+        localDash.on(window.dashjs.MediaPlayer.events.ERROR, (e) => {
           console.error('[VideoPlayer] DASH error:', e);
           setIsLoading(false);
           setErrorMsg(`DASH error: ${e?.error?.message || 'Stream could not be loaded.'}`);
         });
-        setDashPlayer(player);
+        setDashPlayer(localDash);
       }
     } else {
-      // mp4/webm — proxy external URLs
       const finalUrl = proxyUrl(source);
       console.log('[VideoPlayer] Attempting MP4 load:', finalUrl);
       video.src = finalUrl;
     }
 
-    // Ended handler for auto-advance queue
     const handleEnded = () => {
-      if (canControl) {
-        onAutoAdvance();
-      }
+      if (canControl) onAutoAdvance();
     };
     video.addEventListener('ended', handleEnded);
+
     return () => {
       video.removeEventListener('error', handleVideoError);
       video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('ended', handleEnded);
+      
+      if (localHls) {
+        localHls.destroy();
+        setHlsInstance(null);
+      }
+      if (localDash) {
+        localDash.destroy();
+        setDashPlayer(null);
+      }
+      video.removeAttribute('src');
+      video.load();
     };
-  }, [source, sourceType]);
+  }, [source, sourceType, sourcePage, proxyToken]);
 
   // YouTube API Mount
   useEffect(() => {

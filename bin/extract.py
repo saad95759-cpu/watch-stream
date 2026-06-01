@@ -67,6 +67,7 @@ def main():
         "username": "oauth2",
         "password": "",
         "source_address": "0.0.0.0",
+        "no_cache_dir": True,
     }
 
     try:
