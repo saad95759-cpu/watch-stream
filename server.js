@@ -1027,33 +1027,43 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
 
   try {
     // Forward stored cookies from extraction (needed for PornHub-like CDNs)
-    const cookieEntry = getCookiesForDomain(parsed.hostname);
-    const storedCookies = typeof cookieEntry === "string" ? cookieEntry : (cookieEntry?.cookies || "");
-    const storedReferer = (typeof cookieEntry === "object" && cookieEntry?.referer) ? cookieEntry.referer : referer;
-    const storedUserAgent = (typeof cookieEntry === "object" && cookieEntry?.userAgent) ? cookieEntry.userAgent : null;
+     const cookieEntry = getCookiesForDomain(parsed.hostname);
+     const storedCookies = typeof cookieEntry === "string" ? cookieEntry : (cookieEntry?.cookies || "");
+     const storedReferer = (typeof cookieEntry === "object" && cookieEntry?.referer) ? cookieEntry.referer : referer;
+     const storedUserAgent = (typeof cookieEntry === "object" && cookieEntry?.userAgent) ? cookieEntry.userAgent : null;
 
-    const proxyHeaders = {
-      "User-Agent": storedUserAgent || req.headers["user-agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      "Referer": storedReferer || referer,
-      "Origin": (() => { try { return new URL(storedReferer || referer).origin; } catch { return parsed.origin; } })(),
-      "Accept": "*/*",
-      "Accept-Language": "en-US,en;q=0.9",
-      "Accept-Encoding": "identity",
-      "X-Forwarded-For": req.headers["x-forwarded-for"] || req.ip || req.socket.remoteAddress,
-      "X-Real-IP": req.headers["x-real-ip"] || req.socket.remoteAddress,
-    };
-    if (storedCookies) proxyHeaders["Cookie"] = storedCookies;
-    // Forward Range header for seekable MP4 streams
-    if (req.headers["range"]) proxyHeaders["Range"] = req.headers["range"];
+     console.log(`[Proxy] Target hostname: ${parsed.hostname}`);
+     console.log(`[Proxy] Mapped cookies length: ${storedCookies ? storedCookies.length : 0}`);
+     console.log(`[Proxy] Mapped User-Agent: ${storedUserAgent || 'None'}`);
 
-    console.log('Proxy fetching fragment:', rawUrl);
-    const upstream = await fetch(rawUrl, {
-      headers: proxyHeaders,
-      redirect: "follow",
-      signal: AbortSignal.timeout(25000),
-    });
+     const isPh = parsed.hostname.includes("pornhub.com") || parsed.hostname.includes("phncdn.com");
+     const proxyHeaders = {
+       "User-Agent": storedUserAgent || req.headers["user-agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+       "Referer": storedReferer || referer,
+       "Origin": (() => { try { return new URL(storedReferer || referer).origin; } catch { return parsed.origin; } })(),
+       "Accept": "*/*",
+       "Accept-Language": "en-US,en;q=0.9",
+       "Accept-Encoding": "identity",
+     };
+     if (!isPh) {
+       proxyHeaders["X-Forwarded-For"] = req.headers["x-forwarded-for"] || req.ip || req.socket.remoteAddress;
+       proxyHeaders["X-Real-IP"] = req.headers["x-real-ip"] || req.socket.remoteAddress;
+     }
+     if (storedCookies) proxyHeaders["Cookie"] = storedCookies;
+     if (req.headers["range"]) proxyHeaders["Range"] = req.headers["range"];
 
-    if (!upstream.ok && upstream.status !== 206) return res.status(upstream.status).send(`Upstream ${upstream.status}`);
+     console.log('Proxy fetching fragment:', rawUrl);
+     const upstream = await fetch(rawUrl, {
+       headers: proxyHeaders,
+       redirect: "follow",
+       signal: AbortSignal.timeout(25000),
+     });
+
+     console.log(`[Proxy] Upstream status: ${upstream.status}`);
+     if (!upstream.ok && upstream.status !== 206) {
+       console.error(`[Proxy] Fetch failed for segment. Headers sent:`, JSON.stringify(proxyHeaders));
+       return res.status(upstream.status).send(`Upstream ${upstream.status}`);
+     }
 
     const ct = (upstream.headers.get("content-type") || "").toLowerCase();
     const isM3u8 = ct.includes("mpegurl") || ct.includes("x-mpegurl") || ct.includes("apple.mpegurl") ||
