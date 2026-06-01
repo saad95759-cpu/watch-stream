@@ -853,6 +853,28 @@ export default function Room({ roomId, onLeave }) {
       return;
     }
 
+    // Bilibili IFrame Bypass
+    const biliMatch = url.match(/(?:bilibili\.com\/video\/(BV[\w]+)|bilibili\.tv\/en\/video\/(\d+))/i);
+    if (biliMatch) {
+      const bvid = biliMatch[1];
+      const tvId = biliMatch[2];
+      let embedUrl = "";
+      if (bvid) {
+        embedUrl = `https://player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1`;
+      } else if (tvId) {
+        embedUrl = `https://www.bilibili.tv/en/embed/${tvId}`;
+      }
+      
+      socket?.emit('set-source', {
+        source: embedUrl,
+        sourceType: 'iframe',
+        sourcePage: url,
+        title: 'Bilibili Video',
+        thumbnail: null,
+      });
+      return;
+    }
+
     // Auto-detect extension
     const cleanUrl = url.toLowerCase().split('?')[0].split('#')[0];
     const isDirectMedia = cleanUrl.endsWith('.m3u8') || cleanUrl.endsWith('.m3u') || cleanUrl.endsWith('.mp4') || cleanUrl.endsWith('.webm') || cleanUrl.endsWith('.mkv') || cleanUrl.endsWith('.mpd') || /\/manifest\.(m3u8|mpd)/i.test(url) || /format=(m3u8|mpd)/i.test(url);

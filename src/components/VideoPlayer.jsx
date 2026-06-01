@@ -385,6 +385,17 @@ export default function VideoPlayer({
         </div>
       )}
 
+      {/* IFrame Player Wrapper (e.g., Bilibili) */}
+      {source && sourceType === 'iframe' && (
+        <iframe
+          src={source}
+          className="player iframe-player"
+          style={{ width: '100%', height: '100%', border: 'none', position: 'absolute', top: 0, left: 0 }}
+          allow="autoplay; encrypted-media; fullscreen"
+          allowFullScreen
+        />
+      )}
+
       {/* RTC Screen Sharing Player */}
       {sourceType === 'rtc' && (
         <video
@@ -397,12 +408,12 @@ export default function VideoPlayer({
       )}
 
       {/* Overlay to block interaction for standard users */}
-      {!canControl && sourceType !== 'youtube' && (
+      {!canControl && sourceType !== 'youtube' && sourceType !== 'iframe' && (
         <div id="player-overlay" className="player-overlay" />
       )}
 
       {/* Loading Spinner Overlay */}
-      {isLoading && source && !errorMsg && sourceType !== 'youtube' && sourceType !== 'rtc' && (
+      {isLoading && source && !errorMsg && sourceType !== 'youtube' && sourceType !== 'rtc' && sourceType !== 'iframe' && (
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
           background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center',

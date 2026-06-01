@@ -148,34 +148,45 @@ const extractCache = new Map();
 const EXTRACT_TTL_MS = 10 * 60 * 1000;
 const EXTRACT_CACHE_MAX = 200;
 
-// Server-side cookie jar: stores cookies from page fetches per domain
-// Map<string, { cookies: string, referer: string, t: number }>
-const domainCookies = new Map();
+// Server-side cookie jar: stores cookies from page fetches per stream URL
+// Map<string, { cookies: string, referer: string, userAgent: string, t: number }>
+const proxySessions = new Map();
 const COOKIE_TTL_MS = 45 * 60 * 1000; // 45 minutes
 
-function storeCookiesForDomain(domain, cookieStr, referer) {
-  const key = domain.replace(/^www\./, "");
-  domainCookies.set(key, { cookies: cookieStr, referer: referer || "", t: Date.now() });
+function storeProxySession(sourceUrl, cookieStr, referer, userAgent) {
+  proxySessions.set(sourceUrl, {
+    cookies: cookieStr,
+    referer: referer || sourceUrl,
+    userAgent: userAgent || BROWSER_UA,
+    t: Date.now()
+  });
 }
 
 function storeCookiesFromResponse(resp, url) {
   try {
     const setCookies = resp.headers.getSetCookie?.() || [];
     if (setCookies.length > 0) {
-      const domain = new URL(url).hostname.replace(/^www\./, "");
       const cookieStr = setCookies.map((c) => c.split(";")[0]).join("; ");
-      const existing = domainCookies.get(domain);
-      domainCookies.set(domain, { cookies: cookieStr, referer: existing?.referer || "", t: Date.now() });
+      const existing = proxySessions.get(url);
+      storeProxySession(url, cookieStr, existing?.referer || url, existing?.userAgent);
     }
   } catch { /* ignore */ }
 }
 
-function getCookiesForDomain(hostname) {
-  const domain = hostname.replace(/^www\./, "");
-  for (const [d, entry] of domainCookies) {
-    if (Date.now() - entry.t >= COOKIE_TTL_MS) { domainCookies.delete(d); continue; }
-    if (domain === d || domain.endsWith("." + d) || d.endsWith("." + domain.split(".").slice(-2).join("."))) {
-      return entry;
+function getProxySession(sourceUrl) {
+  const entry = proxySessions.get(sourceUrl);
+  if (entry) {
+    if (Date.now() - entry.t >= COOKIE_TTL_MS) {
+      proxySessions.delete(sourceUrl);
+      return null;
+    }
+    return entry;
+  }
+  // Fallback match without query params
+  for (const [k, v] of proxySessions) {
+    if (k.split('?')[0] === sourceUrl.split('?')[0]) {
+      if (Date.now() - v.t >= COOKIE_TTL_MS) { proxySessions.delete(k); continue; }
+      return v;
     }
   }
   return null;
@@ -228,8 +239,8 @@ setInterval(() => {
   for (const [key, entry] of extractCache) {
     if (now - entry.t >= EXTRACT_TTL_MS) extractCache.delete(key);
   }
-  for (const [d, entry] of domainCookies) {
-    if (now - entry.t >= COOKIE_TTL_MS) domainCookies.delete(d);
+  for (const [k, entry] of proxySessions) {
+    if (now - entry.t >= COOKIE_TTL_MS) proxySessions.delete(k);
   }
 }, 5 * 60 * 1000).unref();
 
@@ -309,33 +320,14 @@ function processYtdlpHeaders(info, url) {
     const referer = normalized["referer"] || "";
 
     if (cookieStr || userAgent || referer) {
-      const hostname = new URL(url).hostname;
-      const key = hostname.replace(/^www\./, "");
-      const existing = domainCookies.get(key) || {};
+      const existing = proxySessions.get(url) || {};
       const entry = {
         cookies: cookieStr || existing.cookies || "",
-        referer: referer || existing.referer || "",
-        userAgent: userAgent || existing.userAgent || "",
+        referer: referer || existing.referer || url,
+        userAgent: userAgent || existing.userAgent || BROWSER_UA,
         t: Date.now()
       };
-      domainCookies.set(key, entry);
-
-      // Associate with all format domains/CDNs (e.g. phncdn.com)
-      if (Array.isArray(info?.formats)) {
-        for (const f of info.formats) {
-          if (f && f.url) {
-            try {
-              const streamHostname = new URL(f.url).hostname.replace(/^www\./, "");
-              domainCookies.set(streamHostname, entry);
-              const parts = streamHostname.split(".");
-              if (parts.length >= 2) {
-                const parentDomain = parts.slice(-2).join(".");
-                domainCookies.set(parentDomain, entry);
-              }
-            } catch {}
-          }
-        }
-      }
+      proxySessions.set(url, entry);
     }
   } catch (err) {
     console.warn("Failed to process yt-dlp headers", err);
@@ -632,12 +624,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       const browserResult = await browserExtract(url);
       if (browserResult?.streamUrl) {
         if (browserResult.cookies) {
-          try {
-            const cdnDomain = new URL(browserResult.streamUrl).hostname.replace(/^www\./, "");
-            storeCookiesForDomain(cdnDomain, browserResult.cookies, browserResult.referer || url);
-            const srcDomain = new URL(url).hostname.replace(/^www\./, "");
-            storeCookiesForDomain(srcDomain, browserResult.cookies, url);
-          } catch { /* ignore */ }
+          storeProxySession(url, browserResult.cookies, browserResult.referer || url, browserResult.userAgent);
         }
         const data = {
           streamUrl: browserResult.streamUrl,
@@ -1038,9 +1025,9 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
   const proxyPath = `/${BASE_PATH.replace(/^\//, "")}api/hls-proxy`;
 
   try {
-    // Forward stored cookies from extraction (needed for PornHub-like CDNs)
-     const cookieEntry = getCookiesForDomain(parsed.hostname);
-     const storedCookies = typeof cookieEntry === "string" ? cookieEntry : (cookieEntry?.cookies || "");
+    // Forward stored cookies from extraction using exact stream URL
+     const cookieEntry = getProxySession(refererFull);
+     const storedCookies = typeof cookieEntry === "object" ? cookieEntry.cookies : "";
      const storedReferer = (typeof cookieEntry === "object" && cookieEntry?.referer) ? cookieEntry.referer : refererFull;
      const storedUserAgent = (typeof cookieEntry === "object" && cookieEntry?.userAgent) ? cookieEntry.userAgent : null;
 
