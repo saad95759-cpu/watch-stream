@@ -2125,6 +2125,34 @@ io.on("connection", (socket) => {
     });
   });
 
+  socket.on("playback-sync", ({ source, sourceType, currentTime, isPlaying, title, thumbnail }) => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    if (!canControlPlayback(socket, ctx.room)) return;
+    if (ctx.room.hostSocketId) return;
+
+    const newTime = Number(currentTime) || 0;
+    const isNowPlaying = !!isPlaying;
+
+    if (source && source !== ctx.room.source) {
+      ctx.room.source = source;
+      ctx.room.sourceType = sourceType;
+      ctx.room.title = title || null;
+      ctx.room.thumbnail = thumbnail || null;
+      io.to(ctx.rid).emit("source-changed", { source, sourceType, title: ctx.room.title, thumbnail: ctx.room.thumbnail });
+    }
+
+    ctx.room.currentTime = newTime;
+    ctx.room.isPlaying = isNowPlaying;
+    ctx.room.lastUpdated = Date.now();
+
+    socket.to(ctx.rid).emit("playback-sync", {
+      currentTime: newTime,
+      isPlaying: isNowPlaying,
+      by: socket.id
+    });
+  });
+
   socket.on("chat", (data) => {
     const ctx = requireMember();
     if (!ctx) return;

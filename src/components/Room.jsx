@@ -413,6 +413,12 @@ export default function Room({ roomId, onLeave }) {
       setCurrentTime(time);
     };
 
+    const onPlaybackSync = ({ currentTime: time, isPlaying: playing }) => {
+      if (hostSocketId) return;
+      setCurrentTime(time);
+      setIsPlaying(playing);
+    };
+
     socket.on('state', onState);
     socket.on('room-update', onRoomUpdate);
     socket.on('join-error', onJoinError);
@@ -425,6 +431,7 @@ export default function Room({ roomId, onLeave }) {
     socket.on('play', onPlay);
     socket.on('pause', onPause);
     socket.on('seek', onSeek);
+    socket.on('playback-sync', onPlaybackSync);
 
     return () => {
       socket.off('connect', handleJoin);
@@ -440,6 +447,7 @@ export default function Room({ roomId, onLeave }) {
       socket.off('play', onPlay);
       socket.off('pause', onPause);
       socket.off('seek', onSeek);
+      socket.off('playback-sync', onPlaybackSync);
     };
   }, [socket, roomId]);
 
