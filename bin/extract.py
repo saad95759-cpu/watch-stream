@@ -58,7 +58,7 @@ def main():
         "no_warnings": True,
         "noplaylist": True,
         "skip_download": True,
-        "socket_timeout": 5,
+        "socket_timeout": 15,
         "retries": 3,
         "fragment_retries": 3,
         "http_headers": http_headers,
@@ -66,7 +66,6 @@ def main():
         "age_limit": 99,
         "username": "oauth2",
         "password": "",
-        "source_address": "0.0.0.0",
         "nocheckcertificate": True,
     }
 
