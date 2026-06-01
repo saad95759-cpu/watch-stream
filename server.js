@@ -2883,11 +2883,11 @@ setTimeout(() => {
 // ── yt-dlp auto-updater ───────────────────────────────────────────────────────
 const PIP_CMD = process.platform === 'win32' ? 'pip' : 'pip3';
 function runYtdlpUpdate(reason) {
-  exec(`${PIP_CMD} install -U yt-dlp`, { timeout: 120000 }, (err, stdout, stderr) => {
+  exec(`${PIP_CMD} install -U yt-dlp pycryptodomex`, { timeout: 120000 }, (err, stdout, stderr) => {
     if (err) {
       console.warn(`[yt-dlp] ${reason} update FAILED:`, err.message);
     } else {
-      const line = (stdout || '').split('\n').find(l => l.includes('yt-dlp')) || 'done';
+      const line = (stdout || '').split('\n').find(l => l.includes('yt-dlp') || l.includes('pycryptodomex')) || 'done';
       console.log(`[yt-dlp] ${reason} update OK: ${line.trim()}`);
     }
   });

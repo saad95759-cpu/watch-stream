@@ -7,6 +7,7 @@ const SEEK_THRESHOLD = 1.5;
 export default function VideoPlayer({
   source,
   sourceType,
+  sourcePage,
   currentTime,
   isPlaying,
   canControl,
@@ -46,7 +47,8 @@ export default function VideoPlayer({
     // Local blob / object URL – serve directly
     if (rawUrl.startsWith('blob:') || rawUrl.startsWith('/')) return rawUrl;
     // External → route through server proxy
-    return `/watch-party/api/hls-proxy?url=${encodeURIComponent(rawUrl)}&ref=${encodeURIComponent(rawUrl)}`;
+    const referer = sourcePage || rawUrl;
+    return `/watch-party/api/hls-proxy?url=${encodeURIComponent(rawUrl)}&ref=${encodeURIComponent(referer)}`;
   };
 
   // Floating Reactions listener

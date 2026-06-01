@@ -117,6 +117,7 @@ export default function Room({ roomId, onLeave }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoTitle, setVideoTitle] = useState('');
   const [videoThumbnail, setVideoThumbnail] = useState(null);
+  const [sourcePage, setSourcePage] = useState(null);
 
   // Sharing states
   const [localStream, setLocalStream] = useState(null);
@@ -326,6 +327,7 @@ export default function Room({ roomId, onLeave }) {
         setIsPlaying(state.isPlaying || false);
         setVideoTitle(state.title || '');
         setVideoThumbnail(state.thumbnail || null);
+        setSourcePage(state.sourcePage || null);
       }
 
       if (state.voipPeers && state.voipPeers.length > 0) {
@@ -387,13 +389,14 @@ export default function Room({ roomId, onLeave }) {
       setPublicToggleSetting(!!isPublic);
     };
 
-    const onSourceChanged = ({ source, sourceType, title, thumbnail }) => {
+    const onSourceChanged = ({ source, sourceType, title, thumbnail, sourcePage }) => {
       setSource(source);
       setSourceType(sourceType);
       setCurrentTime(0);
       setIsPlaying(false);
       setVideoTitle(title || '');
       setVideoThumbnail(thumbnail || null);
+      setSourcePage(sourcePage || null);
     };
 
     const onPlay = ({ time }) => {
@@ -1151,6 +1154,7 @@ export default function Room({ roomId, onLeave }) {
             <VideoPlayer
               source={source}
               sourceType={sourceType}
+              sourcePage={sourcePage}
               currentTime={currentTime}
               isPlaying={isPlaying}
               canControl={canControl}
