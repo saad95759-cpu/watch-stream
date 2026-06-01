@@ -312,12 +312,30 @@ function processYtdlpHeaders(info, url) {
       const hostname = new URL(url).hostname;
       const key = hostname.replace(/^www\./, "");
       const existing = domainCookies.get(key) || {};
-      domainCookies.set(key, {
+      const entry = {
         cookies: cookieStr || existing.cookies || "",
         referer: referer || existing.referer || "",
         userAgent: userAgent || existing.userAgent || "",
         t: Date.now()
-      });
+      };
+      domainCookies.set(key, entry);
+
+      // Associate with all format domains/CDNs (e.g. phncdn.com)
+      if (Array.isArray(info?.formats)) {
+        for (const f of info.formats) {
+          if (f && f.url) {
+            try {
+              const streamHostname = new URL(f.url).hostname.replace(/^www\./, "");
+              domainCookies.set(streamHostname, entry);
+              const parts = streamHostname.split(".");
+              if (parts.length >= 2) {
+                const parentDomain = parts.slice(-2).join(".");
+                domainCookies.set(parentDomain, entry);
+              }
+            } catch {}
+          }
+        }
+      }
     }
   } catch (err) {
     console.warn("Failed to process yt-dlp headers", err);

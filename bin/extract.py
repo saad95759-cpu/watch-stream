@@ -70,7 +70,7 @@ def main():
 
     try:
         with YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False, process=False)
+            info = ydl.extract_info(url, download=False, process=True)
             if info is None:
                 print(json.dumps({"error": "no info returned"}))
                 sys.exit(3)
