@@ -111,9 +111,6 @@ export default function VideoPlayer({
           maxMaxBufferLength: 10,
           enableWorker: true,
           lowLatencyMode: true,
-          xhrSetup: (xhr) => {
-            xhr.withCredentials = false;
-          },
         });
         console.log('Attempting to load stream:', finalUrl);
         hls.loadSource(finalUrl);

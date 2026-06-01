@@ -963,18 +963,12 @@ function rewriteM3u8(text, baseUrl, proxyPath, ref) {
     if (trimmed.startsWith("#")) {
       return line.replace(/URI="([^"]+)"/g, (_m, uri) => {
         const abs = new URL(uri, base).toString();
-        if (abs.includes(".m3u8") || abs.includes(".m3u")) {
-          return `URI="${mkProxyUrl(abs)}"`;
-        }
-        return `URI="${abs}"`;
+        return `URI="${mkProxyUrl(abs)}"`;
       });
     }
     if (!trimmed) return line;
     const abs = new URL(trimmed, base).toString();
-    if (abs.includes(".m3u8") || abs.includes(".m3u")) {
-      return mkProxyUrl(abs);
-    }
-    return abs;
+    return mkProxyUrl(abs);
   }).join("\n");
 }
 
