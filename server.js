@@ -509,13 +509,16 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
         "This site blocks data-center IP addresses (the server hosting this app is on such a range), so its video pages can't be loaded from here. Open the video in your browser, copy the .m3u8 URL from DevTools \u2192 Network, and paste it directly into the source bar \u2014 the player handles HLS natively.",
     });
   }
+  // Skip cache for sites whose CDN URLs have short-lived signed tokens (e.g. Pornhub)
+  const hasNativeFreshUrl = YTDLP_NATIVE_HOSTS.some(h => url.toLowerCase().includes(h));
   const cached = extractCache.get(url);
-  if (cached && Date.now() - cached.t < EXTRACT_TTL_MS) {
+  if (cached && !hasNativeFreshUrl && Date.now() - cached.t < EXTRACT_TTL_MS) {
     return res.json(cached.data);
   }
   try {
     const controller = new AbortController();
-    setTimeout(() => controller.abort(), 10000);
+    const fetchTimeout = (typeof hasNativeFreshUrl !== 'undefined' && hasNativeFreshUrl) ? 25000 : 10000;
+    setTimeout(() => controller.abort(), fetchTimeout);
     const resp = await fetch(url, {
       headers: {
         "User-Agent": BROWSER_UA,
@@ -557,7 +560,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           const oldest = extractCache.keys().next().value;
           if (oldest !== undefined) extractCache.delete(oldest);
         }
-        extractCache.set(url, { t: Date.now(), data });
+        if (!hasNativeFreshUrl) extractCache.set(url, { t: Date.now(), data });
         return res.json(data);
       }
     }
@@ -592,7 +595,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           const oldest = extractCache.keys().next().value;
           if (oldest !== undefined) extractCache.delete(oldest);
         }
-        extractCache.set(url, { t: Date.now(), data });
+        if (!hasNativeFreshUrl) extractCache.set(url, { t: Date.now(), data });
         return res.json(data);
       }
     }
@@ -615,7 +618,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
             const oldest = extractCache.keys().next().value;
             if (oldest !== undefined) extractCache.delete(oldest);
           }
-          extractCache.set(url, { t: Date.now(), data });
+          if (!hasNativeFreshUrl) extractCache.set(url, { t: Date.now(), data });
           return res.json(data);
         }
       }
@@ -638,7 +641,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       const oldest = extractCache.keys().next().value;
       if (oldest !== undefined) extractCache.delete(oldest);
     }
-    extractCache.set(url, { t: Date.now(), data });
+    if (!hasNativeFreshUrl) extractCache.set(url, { t: Date.now(), data });
     res.json(data);
   } catch (e) {
     let msg = String(e?.message || "Extraction failed");
@@ -893,8 +896,8 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
     if (cl) res.setHeader("Content-Length", cl);
     const cr = upstream.headers.get("content-range");
     if (cr) res.setHeader("Content-Range", cr);
-    const accept = upstream.headers.get("accept-ranges");
-    if (accept) res.setHeader("Accept-Ranges", accept);
+    // Always advertise byte-range support so browsers can seek
+    res.setHeader("Accept-Ranges", upstream.headers.get("accept-ranges") || "bytes");
     Readable.fromWeb(upstream.body).pipe(res);
   } catch (err) {
     if (!res.headersSent) res.status(502).send("Proxy error: " + err.message);
