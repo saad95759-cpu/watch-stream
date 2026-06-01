@@ -35,6 +35,7 @@ export default function VideoPlayer({
   const [levels, setLevels] = useState([]);
   const [currentLevel, setCurrentLevel] = useState('Auto');
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
 
   // Floating Reactions listener
   useEffect(() => {
@@ -72,6 +73,12 @@ export default function VideoPlayer({
     if (dashPlayer) { dashPlayer.destroy(); setDashPlayer(null); }
     setLevels([]);
     setCurrentLevel('Auto');
+    setErrorMsg(null);
+
+    const handleVideoError = () => {
+      setErrorMsg('Stream blocked by origin. Try extracting again or use the Share Tab.');
+    };
+    video.addEventListener('error', handleVideoError);
 
     if (sourceType === 'hls') {
       if (window.Hls && window.Hls.isSupported()) {
@@ -95,6 +102,11 @@ export default function VideoPlayer({
           } else {
             const currentLvl = hls.levels[data.level];
             setCurrentLevel(currentLvl?.height ? `${currentLvl.height}p` : `Level ${data.level}`);
+          }
+        });
+        hls.on(window.Hls.Events.ERROR, (_, data) => {
+          if (data.fatal) {
+            setErrorMsg('Stream blocked by origin. Try extracting again or use the Share Tab.');
           }
         });
         setHlsInstance(hls);
@@ -127,6 +139,7 @@ export default function VideoPlayer({
     };
     video.addEventListener('ended', handleEnded);
     return () => {
+      video.removeEventListener('error', handleVideoError);
       video.removeEventListener('ended', handleEnded);
     };
   }, [source, sourceType]);
@@ -339,6 +352,18 @@ export default function VideoPlayer({
       {/* Overlay to block interaction for standard users */}
       {!canControl && sourceType !== 'youtube' && (
         <div id="player-overlay" className="player-overlay" />
+      )}
+
+      {/* Error Overlay */}
+      {errorMsg && (
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#ff4444', zIndex: 100, padding: '20px', textAlign: 'center', flexDirection: 'column', gap: '12px'
+        }}>
+          <div style={{ fontSize: '32px' }}>⚠️</div>
+          <div style={{ fontSize: '14px', fontWeight: 'bold' }}>{errorMsg}</div>
+        </div>
       )}
 
       {/* Overlay for Host sharing screen/tab */}

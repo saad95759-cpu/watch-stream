@@ -83,6 +83,7 @@ process.on("SIGINT", () => __cleanupAndExit(0));
         "--disable-extensions",
         "--disable-background-networking",
         "--disable-default-apps",
+        "--disable-blink-features=AutomationControlled",
         "--no-first-run",
         "--js-flags=--max-old-space-size=256",
       ],
@@ -121,15 +122,25 @@ process.on("SIGINT", () => __cleanupAndExit(0));
     ctx.on("response", async (resp) => {
       try {
         const ru = resp.url();
-        const t = classify(ru);
+        const headers = resp.headers();
+        const contentType = (headers["content-type"] || "").toLowerCase();
+        
+        let t = classify(ru);
+        if (!t) {
+          if (contentType.includes("mpegurl") || contentType.includes("application/x-mpegurl")) t = "hls";
+          else if (contentType.includes("dash+xml")) t = "dash";
+          else if (contentType.includes("video/mp4") || contentType.includes("video/webm")) t = "mp4";
+        }
+        
         if (!t) return;
         if (t === "mp4" || t === "mkv") {
           // Skip tiny segment-style mp4s that come from MSE (.mp4?range= etc small)
-          const len = Number(resp.headers()["content-length"] || 0);
+          const len = Number(headers["content-length"] || 0);
+          const sizeMb = len > 0 ? parseFloat((len / (1024 * 1024)).toFixed(2)) : null;
           if (!mp4Best || len > mp4Best.size) {
-            mp4Best = { url: ru, size: len, type: t };
+            mp4Best = { url: ru, size: len, sizeMb, type: t };
           }
-          candidates.set(ru, { type: t, ts: Date.now() });
+          candidates.set(ru, { type: t, ts: Date.now(), sizeMb });
         } else {
           // Prefer "master"/"playlist" m3u8 over media playlists
           candidates.set(ru, { type: t, ts: Date.now() });
@@ -139,8 +150,9 @@ process.on("SIGINT", () => __cleanupAndExit(0));
       }
     });
 
-    // Disable popups and redirects before page creation
+    // Disable popups, redirects, and inject stealth scripts
     await ctx.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
       window.open = () => null;
       window.alert = () => {};
       window.confirm = () => true;
@@ -159,7 +171,7 @@ process.on("SIGINT", () => __cleanupAndExit(0));
       if (isPrivateAddress(host)) return route.abort();
       
       // Block known ad network/tracker keywords to speed up load and prevent redirection
-      if (/(adsbygoogle|doubleclick|adnxs|exoclick|popads|popcash|propellerads|a-ads|juicyads|onclickads|adsterra|yandex|google-analytics|amplitude|facebook\.net|taboola|outbrain|googleadservices)/i.test(ru)) {
+      if (/(adsbygoogle|doubleclick|adnxs|exoclick|popads|popcash|propellerads|a-ads|juicyads|onclickads|adsterra|yandex|google-analytics|amplitude|facebook\.net|taboola|outbrain|googleadservices|tracking|analytics|metric|logger|beacon|telemetry)/i.test(ru)) {
         return route.abort();
       }
       
@@ -203,6 +215,23 @@ process.on("SIGINT", () => __cleanupAndExit(0));
       }
     };
 
+    const extractVideoDuration = async () => {
+      let maxDuration = 0;
+      for (const frame of page.frames()) {
+        try {
+          const d = await frame.evaluate(() => {
+            let maxD = 0;
+            document.querySelectorAll("video").forEach(v => {
+              if (v.duration && !isNaN(v.duration) && v.duration > maxD) maxD = v.duration;
+            });
+            return maxD;
+          });
+          if (d > maxDuration) maxDuration = d;
+        } catch { /* ignore */ }
+      }
+      return maxDuration > 0 ? maxDuration : null;
+    };
+
     let title = "";
     try {
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT });
@@ -238,11 +267,15 @@ process.on("SIGINT", () => __cleanupAndExit(0));
       return;
     }
 
+    const durationSec = await extractVideoDuration();
+
     process.stdout.write(
       JSON.stringify({
         streamUrl: pick.url,
         type: pick.type === "mkv" ? "mp4" : pick.type,
         title: title || "",
+        sizeMb: pick.sizeMb || null,
+        durationSec,
       }) + "\n",
     );
   } catch (e) {

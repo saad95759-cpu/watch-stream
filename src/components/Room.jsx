@@ -1445,23 +1445,35 @@ export default function Room({ roomId, onLeave }) {
 
             {scanResults && (
               <div id="scanner-results" style={{ textAlign: 'left', maxHeight: '200px', overflowY: 'auto', background: 'var(--bg)', padding: '8px', borderRadius: '8px' }}>
-                {scanResults.map((s, idx) => (
-                  <button
-                    key={idx}
-                    className="btn scanner-stream-btn"
-                    style={{ width: '100%', textAlign: 'left', marginBottom: '4px', display: 'block' }}
-                    onClick={() => {
-                      socket?.emit('set-source', {
-                        source: s.url,
-                        sourceType: s.type || 'mp4',
-                        title: s.label || 'Stream',
-                      });
-                      setPasteModalOpen(false);
-                    }}
-                  >
-                    <span className={`stream-badge stream-badge-${s.type}`}>{s.type.toUpperCase()}</span> {s.label || 'Stream'}
-                  </button>
-                ))}
+                {scanResults.map((s, idx) => {
+                  const targetPage = scannerUrl || pasteHtmlText ? 'Scan Result' : 'Extracted Stream';
+                  const proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(s.url)}&ref=${encodeURIComponent(targetPage)}`;
+                  
+                  return (
+                    <button
+                      key={idx}
+                      className="btn scanner-stream-btn"
+                      style={{ width: '100%', textAlign: 'left', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px' }}
+                      onClick={() => {
+                        socket?.emit('set-source', {
+                          source: proxiedUrl,
+                          sourceType: s.type || 'mp4',
+                          title: s.label || 'Stream',
+                        });
+                        setPasteModalOpen(false);
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className={`stream-badge stream-badge-${s.type}`}>{s.type.toUpperCase()}</span>
+                        <span>{s.label || 'Stream'}</span>
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--subtext)', display: 'flex', gap: '12px' }}>
+                        {s.sizeMb && <span>📦 {s.sizeMb} MB</span>}
+                        {s.durationSec && <span>⏱️ {Math.floor(s.durationSec / 60)}:{(s.durationSec % 60).toString().padStart(2, '0')}</span>}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
 
