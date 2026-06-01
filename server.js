@@ -1100,7 +1100,13 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
     if (cr) res.setHeader("Content-Range", cr);
     // Always advertise byte-range support so browsers can seek
     res.setHeader("Accept-Ranges", upstream.headers.get("accept-ranges") || "bytes");
-    Readable.fromWeb(upstream.body).pipe(res);
+    
+    const stream = Readable.fromWeb(upstream.body);
+    stream.on('error', () => { /* ignore premature close */ });
+    res.on('close', () => {
+      if (!stream.destroyed) stream.destroy();
+    });
+    stream.pipe(res);
   } catch (err) {
     if (!res.headersSent) res.status(502).send("Proxy error: " + err.message);
   }
