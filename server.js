@@ -1042,8 +1042,8 @@ app.get(`${BASE_PATH}api/hls-proxy`, async (req, res) => {
 
     if (!upstream.ok && upstream.status !== 206) return res.status(upstream.status).send(`Upstream ${upstream.status}`);
 
-    const ct = upstream.headers.get("content-type") || "";
-    const isM3u8 = ct.includes("mpegurl") || ct.includes("x-mpegURL") ||
+    const ct = (upstream.headers.get("content-type") || "").toLowerCase();
+    const isM3u8 = ct.includes("mpegurl") || ct.includes("x-mpegurl") || ct.includes("apple.mpegurl") ||
       rawUrl.split("?")[0].toLowerCase().endsWith(".m3u8") ||
       rawUrl.split("?")[0].toLowerCase().endsWith(".m3u");
 
