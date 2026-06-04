@@ -22,25 +22,22 @@ import { connectDB, RoomLog, IpBan } from "./db.js";
 await connectDB();
 
 let lastEmailSentTime = 0;
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false,          // true = SSL on 465, false = STARTTLS on 587
-  lookup: (hostname, options, callback) => {
-    // Override default DNS resolution to strictly return IPv4 address
-    dnsCallback.lookup(hostname, { family: 4 }, (err, address, family) => {
-      callback(err, address, family);
+
+// Resolve smtp.gmail.com to IPv4 address (queries ONLY 'A' records, completely avoiding IPv6 addresses)
+function resolveSmtpHost() {
+  return new Promise((resolve) => {
+    dnsCallback.resolve4('smtp.gmail.com', (err, addresses) => {
+      if (err || !addresses || addresses.length === 0) {
+        console.warn("[Email] DNS resolve4 for smtp.gmail.com failed, using default hostname:", err);
+        resolve('smtp.gmail.com'); // Fallback to name if DNS fails
+      } else {
+        // Pick a random IPv4 from the resolved list
+        const ip = addresses[Math.floor(Math.random() * addresses.length)];
+        resolve(ip);
+      }
     });
-  },
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS   // Must be a Gmail App Password (not your regular password)
-                                  // Generate at: myaccount.google.com > Security > App Passwords
-  },
-  connectionTimeout: 15000,  // 15s to establish TCP connection
-  greetingTimeout: 10000,    // 10s to receive SMTP greeting
-  socketTimeout: 20000,      // 20s of socket inactivity before giving up
-});
+  });
+}
 
 // A robust email utility supporting direct HTTP APIs (to bypass outbound port blocks) and SMTP fallback
 async function sendEmailViaHttpOrSmtp({ to, subject, text, filename, content }) {
@@ -141,6 +138,25 @@ async function sendEmailViaHttpOrSmtp({ to, subject, text, filename, content }) 
     throw new Error("SMTP credentials missing. Please set either RESEND_API_KEY, SENDGRID_API_KEY, BREVO_API_KEY, or SMTP_USER/SMTP_PASS.");
   }
 
+  const resolvedIp = await resolveSmtpHost();
+  console.log(`[Email] Resolved smtp.gmail.com to IPv4: ${resolvedIp}`);
+
+  const dynamicTransporter = nodemailer.createTransport({
+    host: resolvedIp,
+    port: 587,
+    secure: false,          // true = SSL on 465, false = STARTTLS on 587
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    },
+    tls: {
+      servername: 'smtp.gmail.com' // CRITICAL: Forces TLS to verify certificate against 'smtp.gmail.com' even though we connected via IP
+    },
+    connectionTimeout: 15000,  // 15s to establish TCP connection
+    greetingTimeout: 10000,    // 10s to receive SMTP greeting
+    socketTimeout: 20000,      // 20s of socket inactivity before giving up
+  });
+
   const mailOptions = {
     from: process.env.SMTP_USER,
     to: to,
@@ -151,7 +167,7 @@ async function sendEmailViaHttpOrSmtp({ to, subject, text, filename, content }) 
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('SMTP timeout — email server took too long to respond.')), 25000);
-    transporter.sendMail(mailOptions, (err, info) => {
+    dynamicTransporter.sendMail(mailOptions, (err, info) => {
       clearTimeout(timer);
       if (err) reject(err);
       else resolve(info);
