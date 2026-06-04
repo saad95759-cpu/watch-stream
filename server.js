@@ -9,6 +9,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFile, exec } from "node:child_process";
 import dns from "node:dns/promises";
+import dnsCallback from "node:dns";
 import net from "node:net";
 import { Readable } from "node:stream";
 import fs from "node:fs/promises";
@@ -25,7 +26,12 @@ const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 587,
   secure: false,          // true = SSL on 465, false = STARTTLS on 587
-  family: 4,              // Force IPv4 — prevents ENETUNREACH on IPv6-blocked hosts (e.g. Render)
+  lookup: (hostname, options, callback) => {
+    // Override default DNS resolution to strictly return IPv4 address
+    dnsCallback.lookup(hostname, { family: 4 }, (err, address, family) => {
+      callback(err, address, family);
+    });
+  },
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS   // Must be a Gmail App Password (not your regular password)
