@@ -1430,9 +1430,14 @@ app.get(`${BASE_PATH}api/admin/email-report-instant`, async (req, res) => {
   } catch (err) {
     console.error("EMAIL ERROR:", err);
     const msg = err.message || 'Unknown error';
-    const hint = (/invalid login|username.*password|authentication/i.test(msg) && !hasHttpKey)
-      ? ' → Make sure SMTP_PASS is a Gmail App Password, not your regular Gmail password. Generate one at myaccount.google.com > Security > App Passwords.'
-      : '';
+    let hint = '';
+    if (!hasHttpKey) {
+      if (/invalid login|username.*password|authentication/i.test(msg)) {
+        hint = ' → Make sure SMTP_PASS is a Gmail App Password, not your regular Gmail password. Generate one at myaccount.google.com > Security > App Passwords.';
+      } else if (/timeout|etimedout|conn/i.test(msg)) {
+        hint = ' → Render blocks all outbound SMTP ports (25, 465, 587) for security. Please register a free account on Resend.com (takes 1 minute) and set RESEND_API_KEY environment variable on your dashboard to send emails via HTTP.';
+      }
+    }
     res.status(500).json({ error: "Failed to send email: " + msg.slice(0, 200) + hint });
   }
 });
@@ -1496,7 +1501,16 @@ app.post(`${BASE_PATH}api/admin/email-master-report`, async (req, res) => {
     res.status(200).json({ success: true, message: "Master report email sent successfully" });
   } catch (err) {
     console.error("MASTER EMAIL ERROR:", err);
-    res.status(500).json({ error: "Failed to send email: " + (err.message || 'Unknown error') });
+    const msg = err.message || 'Unknown error';
+    let hint = '';
+    if (!hasHttpKey) {
+      if (/invalid login|username.*password|authentication/i.test(msg)) {
+        hint = ' → Make sure SMTP_PASS is a Gmail App Password, not your regular Gmail password. Generate one at myaccount.google.com > Security > App Passwords.';
+      } else if (/timeout|etimedout|conn/i.test(msg)) {
+        hint = ' → Render blocks all outbound SMTP ports (25, 465, 587) for security. Please register a free account on Resend.com (takes 1 minute) and set RESEND_API_KEY environment variable on your dashboard to send emails via HTTP.';
+      }
+    }
+    res.status(500).json({ error: "Failed to send email: " + msg.slice(0, 200) + hint });
   }
 });
 
