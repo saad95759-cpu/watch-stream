@@ -25,8 +25,12 @@ const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
     user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  }
+    pass: process.env.SMTP_PASS   // Must be a Gmail App Password (not your regular password)
+                                  // Generate at: myaccount.google.com > Security > App Passwords
+  },
+  connectionTimeout: 10000,  // 10s to establish TCP connection
+  greetingTimeout: 10000,    // 10s to receive SMTP greeting
+  socketTimeout: 20000,      // 20s of socket inactivity before giving up
 });
 
 function extractClientIp(req, socket) {
@@ -1240,12 +1244,19 @@ app.get(`${BASE_PATH}api/admin/email-report-instant`, async (req, res) => {
     return res.status(403).json({ error: "Unauthorized" });
   }
 
-  const now = Date.now();
-  if (now - lastEmailSentTime < 5 * 60 * 1000) {
-    return res.status(429).json({ error: "Too Many Requests. Cooldown is 5 minutes." });
+  // Validate SMTP config is present
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    return res.status(500).json({ error: "Email not configured. Set SMTP_USER and SMTP_PASS environment variables (use a Gmail App Password)." });
+  }
+  if (!process.env.REPORT_RECEIVER_EMAIL) {
+    return res.status(500).json({ error: "Email not configured. Set REPORT_RECEIVER_EMAIL environment variable." });
   }
 
-  lastEmailSentTime = now;
+  const now = Date.now();
+  if (now - lastEmailSentTime < 5 * 60 * 1000) {
+    const remainSec = Math.ceil((5 * 60 * 1000 - (now - lastEmailSentTime)) / 1000);
+    return res.status(429).json({ error: `Too Many Requests. Please wait ${remainSec}s before sending another report.` });
+  }
 
   try {
     const logs = await RoomLog.find({ roomId }).sort({ ts: 1 }).lean();
@@ -1266,17 +1277,29 @@ app.get(`${BASE_PATH}api/admin/email-report-instant`, async (req, res) => {
       attachments: [{ filename: `room-${roomId}-logs.csv`, content: csv }]
     };
 
-    try {
-      await transporter.sendMail(mailOptions);
-    } catch (error) {
-      console.error("SMTP ERROR:", error);
-      return res.status(500).json({ error: "Failed to send email", details: error.message });
-    }
+    // Wrap sendMail in a 25s timeout so the request never hangs indefinitely
+    const sendWithTimeout = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('SMTP timeout — email server took too long to respond.')), 25000);
+      transporter.sendMail(mailOptions, (err, info) => {
+        clearTimeout(timer);
+        if (err) reject(err);
+        else resolve(info);
+      });
+    });
 
+    await sendWithTimeout;
+
+    // Only update the cooldown timer AFTER a successful send
+    lastEmailSentTime = Date.now();
     res.status(200).json({ success: true, message: "Email sent successfully" });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error("SMTP ERROR:", err);
+    const msg = err.message || 'Unknown error';
+    // Give a helpful message for the most common Gmail auth failure
+    const hint = /invalid login|username.*password|authentication/i.test(msg)
+      ? ' → Make sure SMTP_PASS is a Gmail App Password, not your regular Gmail password. Generate one at myaccount.google.com > Security > App Passwords.'
+      : '';
+    res.status(500).json({ error: "Failed to send email: " + msg.slice(0, 200) + hint });
   }
 });
 
