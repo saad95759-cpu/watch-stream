@@ -536,8 +536,62 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       return res.json(cached.data);
     }
   }
-  // If it's a native yt-dlp site, run yt-dlp first — smart fallback to HTML scan on rate-limit (410/403/Gone)
+  // If it's a native yt-dlp site, try fast HTML scrape first — it parses the page's flashvars
+  // in 1-3 seconds. Only fall back to the slow yt-dlp path (15-30s) if HTML fails.
   if (hasNativeFreshUrl) {
+    // --- Fast path: HTML scrape (1-3s) ---
+    let htmlStreams = null;
+    let htmlToken = null;
+    let htmlTitle = null;
+    let htmlThumbnail = null;
+    try {
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 10000);
+      const htmlResp = await fetch(url, {
+        headers: {
+          "User-Agent": BROWSER_UA,
+          "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Referer": (() => { try { return new URL(url).origin + "/"; } catch { return url; } })(),
+        },
+        signal: ctrl.signal,
+        redirect: "follow",
+      });
+      if (htmlResp.ok) {
+        const cookies = storeCookiesFromResponse(htmlResp);
+        const html = await htmlResp.text();
+        const scanned = scanHtmlForStreams(html);
+        if (scanned.streams && scanned.streams.length > 0) {
+          htmlStreams = scanned.streams;
+          htmlToken = storeProxySession(cookies, url, BROWSER_UA);
+          htmlTitle = scanned.title || null;
+          htmlThumbnail = scanned.thumbnail || null;
+        }
+      }
+    } catch (htmlErr) {
+      console.warn("[Extract] HTML fast-path failed for native host:", htmlErr.message?.slice(0, 80));
+    }
+
+    if (htmlStreams && htmlStreams.length > 0) {
+      // Prefer mp4 streams — they play directly without the HLS proxy and never give manifestLoadError
+      const mp4Streams = htmlStreams.filter(s => s.type === 'mp4');
+      const best = mp4Streams[0] || htmlStreams[0];
+      const data = {
+        streamUrl: best.url,
+        type: best.type,
+        title: htmlTitle,
+        duration: null,
+        isLive: false,
+        thumbnail: htmlThumbnail,
+        sourcePage: url,
+        proxyToken: htmlToken,
+        allStreams: htmlStreams.length > 1 ? htmlStreams : undefined,
+      };
+      return res.json(data);
+    }
+
+    // --- Slow fallback: yt-dlp (15-30s) ---
+    console.log("[Extract] HTML fast-path found no streams, falling back to yt-dlp for:", url);
     let rateLimited = false;
     try {
       const info = await ytDlpExtract(url);
@@ -574,43 +628,12 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
         return res.status(422).json({ code: "EXTRACTION_FAILED", error: msg.slice(0, 300) });
       }
     }
-    // HTML scan fallback — only reached on rate-limit
+    // HTML scan fallback — only reached on yt-dlp rate-limit
     if (rateLimited) {
-      try {
-        const controller = new AbortController();
-        setTimeout(() => controller.abort(), 10000);
-        const resp = await fetch(url, {
-          headers: {
-            "User-Agent": BROWSER_UA,
-            "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": (() => { try { return new URL(url).origin + "/"; } catch { return url; } })(),
-          },
-          signal: controller.signal,
-        });
-        if (resp.ok) {
-          const cookies = storeCookiesFromResponse(resp);
-          const html = await resp.text();
-          const scanned = scanHtmlForStreams(html);
-          if (scanned.streams && scanned.streams.length > 0) {
-            const token = storeProxySession(cookies, url, BROWSER_UA);
-            const best = scanned.streams[0];
-            const data = {
-              streamUrl: best.url, type: best.type,
-              title: scanned.title || null, duration: null, isLive: false,
-              thumbnail: scanned.thumbnail || null, sourcePage: scanned.sourcePage || url,
-              allStreams: scanned.streams, proxyToken: token,
-            };
-            extractCache.set(url, { t: Date.now(), data });
-            return res.json(data);
-          }
-        }
-      } catch (fetchErr) {
-        console.warn("[Extract] HTML scan fallback also failed:", fetchErr.message);
-      }
       return res.status(429).json({ code: "RATE_LIMITED", error: "The site is temporarily blocking our server (rate-limited). Please try again in a few minutes or paste the .m3u8 URL directly." });
     }
   }
+
 
   // HTML scan for NON-native hosts only (pornhub etc. already handled above)
   if (!hasNativeFreshUrl) {
