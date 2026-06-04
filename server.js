@@ -529,9 +529,12 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
   }
   // Skip cache for sites whose CDN URLs have short-lived signed tokens (e.g. Pornhub)
   const hasNativeFreshUrl = YTDLP_NATIVE_HOSTS.some(h => url.toLowerCase().includes(h));
-  const cached = extractCache.get(url);
-  if (cached && Date.now() - cached.t < EXTRACT_TTL_MS) {
-    return res.json(cached.data);
+  // For native hosts, NEVER use the cache — their signed CDN URLs expire within seconds/minutes
+  if (!hasNativeFreshUrl) {
+    const cached = extractCache.get(url);
+    if (cached && Date.now() - cached.t < EXTRACT_TTL_MS) {
+      return res.json(cached.data);
+    }
   }
   // If it's a native yt-dlp site, run yt-dlp first — smart fallback to HTML scan on rate-limit (410/403/Gone)
   if (hasNativeFreshUrl) {
@@ -541,6 +544,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       const headers = processYtdlpHeaders(info);
       const token = storeProxySession(headers.cookieStr, headers.referer || url, headers.userAgent);
       const best = pickBestStream(info);
+      const allStreams = ytDlpFormatsToStreams(info);
       if (best && best.url) {
         const data = {
           streamUrl: best.url,
@@ -551,12 +555,9 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           thumbnail: info?.thumbnail || null,
           sourcePage: url,
           proxyToken: token,
+          allStreams: allStreams.length > 1 ? allStreams : undefined,
         };
-        if (extractCache.size >= EXTRACT_CACHE_MAX) {
-          const oldest = extractCache.keys().next().value;
-          if (oldest !== undefined) extractCache.delete(oldest);
-        }
-        extractCache.set(url, { t: Date.now(), data });
+        // Do NOT cache native hosts — their CDN URLs expire quickly
         return res.json(data);
       }
       return res.status(422).json({ code: "NO_STREAM_FOUND", error: "No playable stream found for this URL." });

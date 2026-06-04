@@ -185,6 +185,8 @@ export default function Room({ roomId, onLeave }) {
   const [scanning, setScanning] = useState(false);
   const [proxyToken, setProxyToken] = useState('');
   const [extractToken, setExtractToken] = useState('');
+  // Track the original page URL that was extracted so quality picker can re-extract fresh URLs
+  const [scanSourceUrl, setScanSourceUrl] = useState('');
 
   // Room options dropdown
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
@@ -976,6 +978,7 @@ export default function Room({ roomId, onLeave }) {
       if (deepData.allStreams && deepData.allStreams.length > 0) {
         setScanResults(deepData.allStreams);
         setExtractToken(deepData.proxyToken || '');
+        setScanSourceUrl(targetUrl);  // remember original URL for fresh re-extraction on quality pick
         setPasteModalOpen(true);
         setExtractStatus('');
         return;
@@ -1891,14 +1894,54 @@ export default function Room({ roomId, onLeave }) {
                       key={idx}
                       className="btn scanner-stream-btn"
                       style={{ width: '100%', textAlign: 'left', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px' }}
-                      onClick={() => {
+                      onClick={async () => {
+                        setPasteModalOpen(false);
+                        // If we have the original page URL, re-extract fresh to avoid expired signed CDN URLs
+                        if (scanSourceUrl) {
+                          setExtractStatus('Re-extracting fresh stream...');
+                          setExtractKind('info');
+                          try {
+                            const freshRes = await fetch('/watch-party/api/extract', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ url: scanSourceUrl }),
+                            });
+                            const freshData = await freshRes.json();
+                            // Pick the same quality index from the fresh allStreams
+                            const freshStreams = freshData.allStreams || [];
+                            const freshStream = freshStreams[idx] || (freshData.streamUrl ? { url: freshData.streamUrl, type: freshData.type } : null);
+                            if (freshStream && freshStream.url) {
+                              let proxiedUrl = freshStream.url;
+                              try {
+                                const b64Url = btoa(unescape(encodeURIComponent(freshStream.url)));
+                                const b64Ref = btoa(unescape(encodeURIComponent(scanSourceUrl)));
+                                proxiedUrl = `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}&ptk=${encodeURIComponent(freshData.proxyToken || '')}`;
+                              } catch {
+                                proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(freshStream.url)}&ref=${encodeURIComponent(scanSourceUrl)}&ptk=${encodeURIComponent(freshData.proxyToken || '')}`;
+                              }
+                              socket?.emit('set-source', {
+                                source: proxiedUrl,
+                                sourceType: freshStream.type || s.type || 'mp4',
+                                title: freshData.title || s.label || 'Stream',
+                                thumbnail: freshData.thumbnail || null,
+                                sourcePage: scanSourceUrl,
+                                proxyToken: freshData.proxyToken || '',
+                              });
+                              setExtractStatus('Stream loaded!');
+                              setExtractKind('ok');
+                              return;
+                            }
+                          } catch (e) {
+                            console.warn('Re-extraction failed, falling back to cached URL', e);
+                          }
+                        }
+                        // Fallback: use pre-fetched URL (may be expired for some sites)
                         socket?.emit('set-source', {
                           source: proxiedUrl,
                           sourceType: s.type || 'mp4',
                           title: s.label || 'Stream',
                           proxyToken: extractToken,
                         });
-                        setPasteModalOpen(false);
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
