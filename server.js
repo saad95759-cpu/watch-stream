@@ -36,6 +36,123 @@ const transporter = nodemailer.createTransport({
   socketTimeout: 20000,      // 20s of socket inactivity before giving up
 });
 
+// A robust email utility supporting direct HTTP APIs (to bypass outbound port blocks) and SMTP fallback
+async function sendEmailViaHttpOrSmtp({ to, subject, text, filename, content }) {
+  // Option 1: Resend HTTP API (Port 443 - never blocked)
+  if (process.env.RESEND_API_KEY) {
+    console.log("[Email] Attempting HTTP send via Resend API...");
+    const fromEmail = process.env.SMTP_USER || 'onboarding@resend.dev';
+    const resp = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: fromEmail,
+        to: to,
+        subject: subject,
+        html: text.replace(/\n/g, '<br>'),
+        attachments: [
+          {
+            filename: filename,
+            content: Buffer.from(content).toString('base64'),
+          }
+        ]
+      })
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`Resend API error: ${resp.status} - ${errText}`);
+    }
+    return await resp.json();
+  }
+
+  // Option 2: SendGrid HTTP API (Port 443 - never blocked)
+  if (process.env.SENDGRID_API_KEY) {
+    console.log("[Email] Attempting HTTP send via SendGrid API...");
+    const resp = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.SENDGRID_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: to }] }],
+        from: { email: process.env.SMTP_USER || 'admin@watchparty.live' },
+        subject: subject,
+        content: [{ type: 'text/html', value: text.replace(/\n/g, '<br>') }],
+        attachments: [
+          {
+            content: Buffer.from(content).toString('base64'),
+            filename: filename,
+            type: 'text/csv',
+            disposition: 'attachment',
+          }
+        ]
+      })
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`SendGrid API error: ${resp.status} - ${errText}`);
+    }
+    return;
+  }
+
+  // Option 3: Brevo HTTP API (Port 443 - never blocked)
+  if (process.env.BREVO_API_KEY || process.env.SENDINBLUE_API_KEY) {
+    console.log("[Email] Attempting HTTP send via Brevo API...");
+    const apiKey = process.env.BREVO_API_KEY || process.env.SENDINBLUE_API_KEY;
+    const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { email: process.env.SMTP_USER || 'admin@watchparty.live' },
+        to: [{ email: to }],
+        subject: subject,
+        htmlContent: text.replace(/\n/g, '<br>'),
+        attachment: [
+          {
+            name: filename,
+            content: Buffer.from(content).toString('base64'),
+          }
+        ]
+      })
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`Brevo API error: ${resp.status} - ${errText}`);
+    }
+    return await resp.json();
+  }
+
+  // Option 4: SMTP Fallback
+  console.log("[Email] No HTTP API key set. Falling back to SMTP...");
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    throw new Error("SMTP credentials missing. Please set either RESEND_API_KEY, SENDGRID_API_KEY, BREVO_API_KEY, or SMTP_USER/SMTP_PASS.");
+  }
+
+  const mailOptions = {
+    from: process.env.SMTP_USER,
+    to: to,
+    subject: subject,
+    text: text,
+    attachments: [{ filename: filename, content: content }]
+  };
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('SMTP timeout — email server took too long to respond.')), 25000);
+    transporter.sendMail(mailOptions, (err, info) => {
+      clearTimeout(timer);
+      if (err) reject(err);
+      else resolve(info);
+    });
+  });
+}
+
 function extractClientIp(req, socket) {
   if (socket?.handshake?.headers?.['x-forwarded-for']) {
     return socket.handshake.headers['x-forwarded-for'].split(',')[0].trim();
@@ -1247,9 +1364,10 @@ app.get(`${BASE_PATH}api/admin/email-report-instant`, async (req, res) => {
     return res.status(403).json({ error: "Unauthorized" });
   }
 
-  // Validate SMTP config is present
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    return res.status(500).json({ error: "Email not configured. Set SMTP_USER and SMTP_PASS environment variables (use a Gmail App Password)." });
+  // Validate configuration checks
+  const hasHttpKey = process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY || process.env.BREVO_API_KEY || process.env.SENDINBLUE_API_KEY;
+  if (!hasHttpKey && (!process.env.SMTP_USER || !process.env.SMTP_PASS)) {
+    return res.status(500).json({ error: "Email not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, BREVO_API_KEY, or SMTP environment variables." });
   }
   if (!process.env.REPORT_RECEIVER_EMAIL) {
     return res.status(500).json({ error: "Email not configured. Set REPORT_RECEIVER_EMAIL environment variable." });
@@ -1272,37 +1390,91 @@ app.get(`${BASE_PATH}api/admin/email-report-instant`, async (req, res) => {
       csv += `${ts},${type},"${name}","${text}"\n`;
     }
 
-    const mailOptions = {
-      from: process.env.SMTP_USER,
+    const subject = `Admin Report for Room: ${roomId}`;
+    const textContent = `Attached is the CSV report for room ${roomId}.`;
+    const filename = `room-${roomId}-logs.csv`;
+
+    await sendEmailViaHttpOrSmtp({
       to: process.env.REPORT_RECEIVER_EMAIL,
-      subject: `Admin Report for Room: ${roomId}`,
-      text: `Attached is the CSV report for room ${roomId}.`,
-      attachments: [{ filename: `room-${roomId}-logs.csv`, content: csv }]
-    };
-
-    // Wrap sendMail in a 25s timeout so the request never hangs indefinitely
-    const sendWithTimeout = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('SMTP timeout — email server took too long to respond.')), 25000);
-      transporter.sendMail(mailOptions, (err, info) => {
-        clearTimeout(timer);
-        if (err) reject(err);
-        else resolve(info);
-      });
+      subject,
+      text: textContent,
+      filename,
+      content: csv
     });
-
-    await sendWithTimeout;
 
     // Only update the cooldown timer AFTER a successful send
     lastEmailSentTime = Date.now();
     res.status(200).json({ success: true, message: "Email sent successfully" });
   } catch (err) {
-    console.error("SMTP ERROR:", err);
+    console.error("EMAIL ERROR:", err);
     const msg = err.message || 'Unknown error';
-    // Give a helpful message for the most common Gmail auth failure
-    const hint = /invalid login|username.*password|authentication/i.test(msg)
+    const hint = (/invalid login|username.*password|authentication/i.test(msg) && !hasHttpKey)
       ? ' → Make sure SMTP_PASS is a Gmail App Password, not your regular Gmail password. Generate one at myaccount.google.com > Security > App Passwords.'
       : '';
     res.status(500).json({ error: "Failed to send email: " + msg.slice(0, 200) + hint });
+  }
+});
+
+app.post(`${BASE_PATH}api/admin/email-master-report`, async (req, res) => {
+  const { token, logs } = req.body;
+  if (!token || !adminTokens.has(token)) {
+    return res.status(403).json({ error: "Unauthorized" });
+  }
+
+  // Validate configuration checks
+  const hasHttpKey = process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY || process.env.BREVO_API_KEY || process.env.SENDINBLUE_API_KEY;
+  if (!hasHttpKey && (!process.env.SMTP_USER || !process.env.SMTP_PASS)) {
+    return res.status(500).json({ error: "Email not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, BREVO_API_KEY, or SMTP environment variables." });
+  }
+  if (!process.env.REPORT_RECEIVER_EMAIL) {
+    return res.status(500).json({ error: "Email not configured. Set REPORT_RECEIVER_EMAIL environment variable." });
+  }
+
+  const now = Date.now();
+  if (now - lastEmailSentTime < 5 * 60 * 1000) {
+    const remainSec = Math.ceil((5 * 60 * 1000 - (now - lastEmailSentTime)) / 1000);
+    return res.status(429).json({ error: `Too Many Requests. Please wait ${remainSec}s before sending another report.` });
+  }
+
+  if (!Array.isArray(logs) || logs.length === 0) {
+    return res.status(400).json({ error: "No logs selected." });
+  }
+
+  try {
+    let csv = "Timestamp,Type,RoomId,SessionId,IP,Role,Message/URL\n";
+    for (const l of logs) {
+      const ts = new Date(l.ts || l.createdAt || Date.now()).toISOString();
+      const type = l.type || "";
+      const roomId = l.roomId || "";
+      const sessionId = l.sessionId || "";
+      const ip = l.clientIp || "";
+      const role = l.role || "";
+      let text = l.text || "";
+      if (l.type === 'chat' || l.type === 'text') text = `${l.name}: ${l.text}`;
+      else if (l.type === 'system') text = l.text;
+      else if (l.type === 'video') text = l.url;
+      else if (l.type === 'video-duration') text = `Watched ${l.durationMinutes} min`;
+      csv += `${ts},${type},${roomId},${sessionId},${ip},${role},"${text.replace(/"/g, '""')}"\n`;
+    }
+
+    const subject = `Master Logs Report - ${logs.length} entries`;
+    const textContent = `Attached is the CSV report containing ${logs.length} selected/filtered master log entries.`;
+    const filename = `master-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+
+    await sendEmailViaHttpOrSmtp({
+      to: process.env.REPORT_RECEIVER_EMAIL,
+      subject,
+      text: textContent,
+      filename,
+      content: csv
+    });
+
+    // Only update the cooldown timer AFTER a successful send
+    lastEmailSentTime = Date.now();
+    res.status(200).json({ success: true, message: "Master report email sent successfully" });
+  } catch (err) {
+    console.error("MASTER EMAIL ERROR:", err);
+    res.status(500).json({ error: "Failed to send email: " + (err.message || 'Unknown error') });
   }
 });
 

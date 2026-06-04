@@ -42,6 +42,7 @@ export default function AdminDashboard({ onBack }) {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [searchRoomId, setSearchRoomId] = useState('');
+  const [selectedLogIds, setSelectedLogIds] = useState(new Set());
 
   // Setup admin login token check
   useEffect(() => {
@@ -197,8 +198,91 @@ export default function AdminDashboard({ onBack }) {
   const handleFetchMasterLogs = () => {
     setMasterLoading(true);
     setMasterLogs([]);
+    setSelectedLogIds(new Set());
     if (socket) {
       socket.emit('admin-fetch-master-logs', { startDate, endDate, searchRoomId });
+    }
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedLogIds.size === masterLogs.length) {
+      setSelectedLogIds(new Set());
+    } else {
+      setSelectedLogIds(new Set(masterLogs.map((l, idx) => l._id || idx)));
+    }
+  };
+
+  const handleToggleSelectOne = (id) => {
+    const newSet = new Set(selectedLogIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedLogIds(newSet);
+  };
+
+  const handleDownloadMasterLogs = (downloadAll = false) => {
+    const logsToDownload = downloadAll
+      ? masterLogs
+      : masterLogs.filter((l, idx) => selectedLogIds.has(l._id || idx));
+
+    if (logsToDownload.length === 0) {
+      return alert('No logs selected to download.');
+    }
+
+    let csv = "Timestamp,Type,RoomId,SessionId,IP,Role,Message/URL\n";
+    for (const l of logsToDownload) {
+      const ts = new Date(l.ts || l.createdAt || Date.now()).toISOString();
+      const type = l.type || "";
+      const roomId = l.roomId || "";
+      const sessionId = l.sessionId || "";
+      const ip = l.clientIp || "";
+      const role = l.role || "";
+      let text = l.text || "";
+      if (l.type === 'chat' || l.type === 'text') text = `${l.name}: ${l.text}`;
+      else if (l.type === 'system') text = l.text;
+      else if (l.type === 'video') text = l.url;
+      else if (l.type === 'video-duration') text = `Watched ${l.durationMinutes} min`;
+      csv += `${ts},${type},${roomId},${sessionId},${ip},${role},"${text.replace(/"/g, '""')}"\n`;
+    }
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `master-logs-${downloadAll ? 'all' : 'selected'}-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleEmailMasterLogs = async (sendAll = false) => {
+    const token = sessGet('wp-admin-token');
+    if (!token) return alert('Admin token not found!');
+
+    const logsToSend = sendAll
+      ? masterLogs
+      : masterLogs.filter((l, idx) => selectedLogIds.has(l._id || idx));
+
+    if (logsToSend.length === 0) {
+      return alert('No logs selected to email.');
+    }
+
+    setEmailSending(true);
+    try {
+      const res = await fetch('/watch-party/api/admin/email-master-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, logs: logsToSend })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to send master email');
+      alert('Success: ' + data.message);
+    } catch (err) {
+      alert('Error: ' + err.message);
+    } finally {
+      setEmailSending(false);
     }
   };
 
@@ -432,7 +516,7 @@ export default function AdminDashboard({ onBack }) {
       {/* Master Logs Modal */}
       {masterModalOpen && (
         <div id="admin-master-logs-modal" className="modal-overlay">
-          <div className="modal-card" style={{ maxWidth: '90vw', width: '800px' }}>
+          <div className="modal-card" style={{ maxWidth: '95vw', width: '900px' }}>
             <h3>Master Aggregated Reports</h3>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
               <input type="date" id="master-start-date" className="btn" style={{ background: 'var(--bg-elev)', cursor: 'text', border: '1px solid var(--border)' }} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
@@ -440,7 +524,21 @@ export default function AdminDashboard({ onBack }) {
               <input type="text" id="master-search-room" className="btn" placeholder="Search Room ID..." style={{ background: 'var(--bg-elev)', cursor: 'text', flex: 1, border: '1px solid var(--border)' }} value={searchRoomId} onChange={(e) => setSearchRoomId(e.target.value)} />
               <button id="master-fetch-btn" className="btn btn-primary" onClick={handleFetchMasterLogs}>Fetch</button>
             </div>
-            <div id="master-logs-content" style={{ maxHeight: '60vh', overflowY: 'auto', textAlign: 'left', fontSize: '13px', fontFamily: 'monospace', background: 'var(--bg)', padding: '8px', borderRadius: '8px' }}>
+
+            {masterLogs.length > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', padding: '0 4px', fontSize: '12px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={masterLogs.length > 0 && selectedLogIds.size === masterLogs.length}
+                    onChange={handleToggleSelectAll}
+                  />
+                  <span>Select All ({selectedLogIds.size} / {masterLogs.length} selected)</span>
+                </label>
+              </div>
+            )}
+
+            <div id="master-logs-content" style={{ maxHeight: '55vh', overflowY: 'auto', textAlign: 'left', fontSize: '13px', fontFamily: 'monospace', background: 'var(--bg)', padding: '8px', borderRadius: '8px' }}>
               {masterLoading ? (
                 <p className="hint">Fetching...</p>
               ) : masterLogs.length === 0 ? (
@@ -448,28 +546,75 @@ export default function AdminDashboard({ onBack }) {
               ) : (
                 masterLogs.map((l, idx) => {
                   const ts = new Date(l.ts || l.createdAt).toLocaleString();
+                  const currentId = l._id || idx;
                   let text = l.text || '';
                   if (l.type === 'chat' || l.type === 'text') text = `[Chat] <span style="color:var(--primary);">${l.name}</span>: ${l.text}`;
                   if (l.type === 'video') text = `[Video] <a href="${l.url}" target="_blank" style="color:var(--primary);">${l.url}</a>`;
                   if (l.type === 'video-duration') text = `[Duration] User <span style="color:var(--primary);">${l.name}</span> watched ${l.durationMinutes} min`;
                   
                   return (
-                    <div key={idx} style={{ padding: '4px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                      <span style={{ color: '#888' }}>[{ts}]</span>{' '}
-                      <strong>[{(l.type || 'unknown').toUpperCase()}]</strong>{' '}
-                      <span style={{ color: '#63b3ed' }}>Room: {l.roomId}</span> |{' '}
-                      <span style={{ color: '#cbd5e0' }}>Sess: {l.sessionId || 'N/A'}</span> |{' '}
-                      <span style={{ color: '#e53e3e' }}>IP: {l.clientIp || 'N/A'}</span> |{' '}
-                      Role: {l.role || 'unknown'}{' '}
-                      <br />
-                      <span dangerouslySetInnerHTML={{ __html: text }} />
+                    <div key={idx} style={{ padding: '6px 4px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                      <input
+                        type="checkbox"
+                        style={{ marginTop: '3px', cursor: 'pointer' }}
+                        checked={selectedLogIds.has(currentId)}
+                        onChange={() => handleToggleSelectOne(currentId)}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <span style={{ color: '#888' }}>[{ts}]</span>{' '}
+                        <strong>[{(l.type || 'unknown').toUpperCase()}]</strong>{' '}
+                        <span style={{ color: '#63b3ed' }}>Room: {l.roomId}</span> |{' '}
+                        <span style={{ color: '#cbd5e0' }}>Sess: {l.sessionId || 'N/A'}</span> |{' '}
+                        <span style={{ color: '#e53e3e' }}>IP: {l.clientIp || 'N/A'}</span> |{' '}
+                        Role: {l.role || 'unknown'}{' '}
+                        <br />
+                        <span dangerouslySetInnerHTML={{ __html: text }} />
+                      </div>
                     </div>
                   );
                 })
               )}
             </div>
-            <div className="modal-actions" style={{ marginTop: '16px' }}>
-              <button id="master-logs-close-btn" type="button" className="btn btn-primary" onClick={() => setMasterModalOpen(false)}>
+            <div className="modal-actions" style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => handleEmailMasterLogs(false)}
+                disabled={emailSending || selectedLogIds.size === 0}
+              >
+                📧 Email Selected ({selectedLogIds.size})
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => handleEmailMasterLogs(true)}
+                disabled={emailSending || masterLogs.length === 0}
+              >
+                📧 Email All ({masterLogs.length})
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => handleDownloadMasterLogs(false)}
+                disabled={selectedLogIds.size === 0}
+              >
+                💾 Download Selected ({selectedLogIds.size})
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => handleDownloadMasterLogs(true)}
+                disabled={masterLogs.length === 0}
+              >
+                💾 Download All ({masterLogs.length})
+              </button>
+              <button
+                id="master-logs-close-btn"
+                type="button"
+                className="btn btn-primary"
+                style={{ marginLeft: 'auto' }}
+                onClick={() => setMasterModalOpen(false)}
+              >
                 Close
               </button>
             </div>
