@@ -861,7 +861,7 @@ export default function Room({ roomId, onLeave }) {
 
     // Bilibili IFrame Bypass
     if (url.includes('bilibili.com') || url.includes('bilibili.tv')) {
-      // bilibili.com with BVID → official player embed
+      // bilibili.com with BVID → official player embed (works)
       let bvid = url.match(/(?:bvid=|video\/)(BV[a-zA-Z0-9]+)/)?.[1];
       if (bvid) {
         socket?.emit('set-source', {
@@ -870,14 +870,9 @@ export default function Room({ roomId, onLeave }) {
         });
         return;
       }
-      // bilibili.tv with numeric episode ID → load clean page as iframe
-      const tvMatch = url.match(/bilibili\.tv\/[^/]+\/(?:video|play)\/(\d+)/i);
-      if (tvMatch) {
-        const cleanUrl = `https://www.bilibili.tv/en/video/${tvMatch[1]}`;
-        socket?.emit('set-source', {
-          source: cleanUrl,
-          sourceType: 'iframe', sourcePage: url, title: 'Bilibili Video', thumbnail: null,
-        });
+      // bilibili.tv (international) blocks iframe embedding — tell user to Share Browser Tab
+      if (url.includes('bilibili.tv')) {
+        alert('⚠️ bilibili.tv (international) blocks embedding.\n\nPlease use the "Share Browser Tab" button (screen share) to watch this video together.');
         return;
       }
     }
@@ -932,6 +927,7 @@ export default function Room({ roomId, onLeave }) {
 
     // Bilibili IFrame Bypass
     if (targetUrl.includes('bilibili.com') || targetUrl.includes('bilibili.tv')) {
+      // bilibili.com with BVID → official player embed (works)
       let bvid = targetUrl.match(/(?:bvid=|video\/)(BV[a-zA-Z0-9]+)/)?.[1];
       if (bvid) {
         socket?.emit('set-source', {
@@ -940,14 +936,11 @@ export default function Room({ roomId, onLeave }) {
         });
         setExtractStatus('Bilibili iframe loaded!'); setExtractKind('ok'); return;
       }
-      const tvMatch = targetUrl.match(/bilibili\.tv\/[^/]+\/(?:video|play)\/(\d+)/i);
-      if (tvMatch) {
-        const cleanUrl = `https://www.bilibili.tv/en/video/${tvMatch[1]}`;
-        socket?.emit('set-source', {
-          source: cleanUrl,
-          sourceType: 'iframe', sourcePage: targetUrl, title: 'Bilibili Video', thumbnail: null,
-        });
-        setExtractStatus('Bilibili iframe loaded!'); setExtractKind('ok'); return;
+      // bilibili.tv (international) blocks iframe embedding via X-Frame-Options: SAMEORIGIN
+      if (targetUrl.includes('bilibili.tv')) {
+        setExtractStatus('⚠️ bilibili.tv blocks embedding. Use "Share Browser Tab" to watch together.');
+        setExtractKind('warn');
+        return;
       }
     }
 
@@ -1020,6 +1013,7 @@ export default function Room({ roomId, onLeave }) {
 
     // Bilibili IFrame Bypass
     if (scannerUrl.includes('bilibili.com') || scannerUrl.includes('bilibili.tv')) {
+      // bilibili.com with BVID → official player embed (works)
       let bvid = scannerUrl.match(/(?:bvid=|video\/)(BV[a-zA-Z0-9]+)/)?.[1];
       if (bvid) {
         socket?.emit('set-source', {
@@ -1028,14 +1022,12 @@ export default function Room({ roomId, onLeave }) {
         });
         setPasteModalOpen(false); setScannerStatus(''); setScanning(false); return;
       }
-      const tvMatch = scannerUrl.match(/bilibili\.tv\/[^/]+\/(?:video|play)\/(\d+)/i);
-      if (tvMatch) {
-        const cleanUrl = `https://www.bilibili.tv/en/video/${tvMatch[1]}`;
-        socket?.emit('set-source', {
-          source: cleanUrl,
-          sourceType: 'iframe', sourcePage: scannerUrl, title: 'Bilibili Video', thumbnail: null,
-        });
-        setPasteModalOpen(false); setScannerStatus(''); setScanning(false); return;
+      // bilibili.tv (international) blocks iframe embedding — show error
+      if (scannerUrl.includes('bilibili.tv')) {
+        setScannerStatus('⚠️ bilibili.tv blocks embedding. Use "Share Browser Tab" to watch together.');
+        setScannerStatusKind('warn');
+        setScanning(false);
+        return;
       }
     }
 
