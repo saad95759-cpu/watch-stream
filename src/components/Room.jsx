@@ -1894,54 +1894,19 @@ export default function Room({ roomId, onLeave }) {
                       key={idx}
                       className="btn scanner-stream-btn"
                       style={{ width: '100%', textAlign: 'left', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px' }}
-                      onClick={async () => {
-                        setPasteModalOpen(false);
-                        // If we have the original page URL, re-extract fresh to avoid expired signed CDN URLs
-                        if (scanSourceUrl) {
-                          setExtractStatus('Re-extracting fresh stream...');
-                          setExtractKind('info');
-                          try {
-                            const freshRes = await fetch('/watch-party/api/extract', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ url: scanSourceUrl }),
-                            });
-                            const freshData = await freshRes.json();
-                            // Pick the same quality index from the fresh allStreams
-                            const freshStreams = freshData.allStreams || [];
-                            const freshStream = freshStreams[idx] || (freshData.streamUrl ? { url: freshData.streamUrl, type: freshData.type } : null);
-                            if (freshStream && freshStream.url) {
-                              let proxiedUrl = freshStream.url;
-                              try {
-                                const b64Url = btoa(unescape(encodeURIComponent(freshStream.url)));
-                                const b64Ref = btoa(unescape(encodeURIComponent(scanSourceUrl)));
-                                proxiedUrl = `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}&ptk=${encodeURIComponent(freshData.proxyToken || '')}`;
-                              } catch {
-                                proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(freshStream.url)}&ref=${encodeURIComponent(scanSourceUrl)}&ptk=${encodeURIComponent(freshData.proxyToken || '')}`;
-                              }
-                              socket?.emit('set-source', {
-                                source: proxiedUrl,
-                                sourceType: freshStream.type || s.type || 'mp4',
-                                title: freshData.title || s.label || 'Stream',
-                                thumbnail: freshData.thumbnail || null,
-                                sourcePage: scanSourceUrl,
-                                proxyToken: freshData.proxyToken || '',
-                              });
-                              setExtractStatus('Stream loaded!');
-                              setExtractKind('ok');
-                              return;
-                            }
-                          } catch (e) {
-                            console.warn('Re-extraction failed, falling back to cached URL', e);
-                          }
-                        }
-                        // Fallback: use pre-fetched URL (may be expired for some sites)
+                      onClick={() => {
+                        // Use the fresh URLs from the initial extraction directly — they are seconds old and valid.
+                        // The HLS retry layer handles any transient errors without needing another yt-dlp round-trip.
                         socket?.emit('set-source', {
                           source: proxiedUrl,
                           sourceType: s.type || 'mp4',
                           title: s.label || 'Stream',
+                          sourcePage: scanSourceUrl || undefined,
                           proxyToken: extractToken,
                         });
+                        setPasteModalOpen(false);
+                        setExtractStatus('Stream loaded!');
+                        setExtractKind('ok');
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
