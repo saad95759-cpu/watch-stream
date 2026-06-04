@@ -155,9 +155,32 @@ export default function VideoPlayer({
             setCurrentLevel(currentLvl?.height ? `${currentLvl.height}p` : `Level ${data.level}`);
           }
         });
+        let hlsRetryCount = 0;
         localHls.on(window.Hls.Events.ERROR, (_, data) => {
           console.error('[VideoPlayer] HLS error:', data.type, data.details, data);
           if (data.fatal) {
+            if (data.type === window.Hls.ErrorTypes.NETWORK_ERROR && hlsRetryCount < 3) {
+              hlsRetryCount++;
+              console.log(`[VideoPlayer] Recovering from network error (${data.details}), attempt ${hlsRetryCount}...`);
+              if (data.details === 'manifestLoadError' || data.details === window.Hls.ErrorDetails.MANIFEST_LOAD_ERROR) {
+                setTimeout(() => {
+                  try {
+                    localHls.loadSource(finalUrl);
+                  } catch (e) {
+                    console.error('Failed to retry loadSource', e);
+                  }
+                }, 1500);
+              } else {
+                localHls.startLoad();
+              }
+              return;
+            } else if (data.type === window.Hls.ErrorTypes.MEDIA_ERROR && hlsRetryCount < 3) {
+              hlsRetryCount++;
+              console.log(`[VideoPlayer] Recovering from media error (${data.details}), attempt ${hlsRetryCount}...`);
+              localHls.recoverMediaError();
+              return;
+            }
+
             setIsLoading(false);
             setErrorMsg(data.type + " - " + data.details);
             try { localHls.destroy(); } catch {}
