@@ -22,13 +22,16 @@ await connectDB();
 
 let lastEmailSentTime = 0;
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false,          // true = SSL on 465, false = STARTTLS on 587
+  family: 4,              // Force IPv4 — prevents ENETUNREACH on IPv6-blocked hosts (e.g. Render)
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS   // Must be a Gmail App Password (not your regular password)
                                   // Generate at: myaccount.google.com > Security > App Passwords
   },
-  connectionTimeout: 10000,  // 10s to establish TCP connection
+  connectionTimeout: 15000,  // 15s to establish TCP connection
   greetingTimeout: 10000,    // 10s to receive SMTP greeting
   socketTimeout: 20000,      // 20s of socket inactivity before giving up
 });
