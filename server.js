@@ -21,6 +21,18 @@ import { connectDB, RoomLog, IpBan } from "./db.js";
 
 await connectDB();
 
+// Startup warning: remind operator to configure an HTTP email API on Render
+if (
+  (process.env.RENDER || process.env.RENDER_SERVICE_NAME || process.env.RENDER_INSTANCE_ID) &&
+  !process.env.RESEND_API_KEY && !process.env.SENDGRID_API_KEY && !process.env.BREVO_API_KEY
+) {
+  console.warn(
+    "[Email] ⚠️  WARNING: No HTTP email API key detected (RESEND_API_KEY / SENDGRID_API_KEY / BREVO_API_KEY).\n" +
+    "[Email]    Render blocks all outbound SMTP ports — email reports will FAIL until you set one.\n" +
+    "[Email]    → Recommended: Sign up free at https://resend.com and set RESEND_API_KEY in Render Dashboard > Environment."
+  );
+}
+
 let lastEmailSentTime = 0;
 
 // Resolve smtp.gmail.com to IPv4 address (queries ONLY 'A' records, completely avoiding IPv6 addresses)
@@ -134,6 +146,26 @@ async function sendEmailViaHttpOrSmtp({ to, subject, text, filename, content }) 
 
   // Option 4: SMTP Fallback
   console.log("[Email] No HTTP API key set. Falling back to SMTP...");
+
+  // ── Render / PaaS firewall guard ─────────────────────────────────────────
+  // Render (and most PaaS platforms) hard-block ALL outbound SMTP ports
+  // (25, 465, 587) at the network firewall level. Attempting SMTP here will
+  // always produce ETIMEDOUT after 15 s — wasting time and filling logs.
+  // Fail immediately with a clear, actionable message instead.
+  const isRendered = !!(
+    process.env.RENDER ||
+    process.env.RENDER_SERVICE_NAME ||
+    process.env.RENDER_INSTANCE_ID
+  );
+  if (isRendered) {
+    throw new Error(
+      "Failed to send email: Connection timeout → Render blocks all outbound SMTP ports (25, 465, 587) for security. " +
+      "Please register a free account on Resend.com (takes 1 minute) and set RESEND_API_KEY environment variable " +
+      "on your Render dashboard to send emails via HTTP."
+    );
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     throw new Error("SMTP credentials missing. Please set either RESEND_API_KEY, SENDGRID_API_KEY, BREVO_API_KEY, or SMTP_USER/SMTP_PASS.");
   }
@@ -153,9 +185,9 @@ async function sendEmailViaHttpOrSmtp({ to, subject, text, filename, content }) 
     tls: {
       servername: 'smtp.gmail.com' // CRITICAL: Forces TLS to verify certificate against 'smtp.gmail.com' even though we connected via IP
     },
-    connectionTimeout: 15000,  // 15s to establish TCP connection
-    greetingTimeout: 10000,    // 10s to receive SMTP greeting
-    socketTimeout: 20000,      // 20s of socket inactivity before giving up
+    connectionTimeout: 8000,   // 8s to establish TCP connection
+    greetingTimeout: 8000,     // 8s to receive SMTP greeting
+    socketTimeout: 10000,      // 10s of socket inactivity before giving up
   });
 
   const mailOptions = {
