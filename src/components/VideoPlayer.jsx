@@ -28,7 +28,7 @@ export default function VideoPlayer({
   const videoRef = useRef(null);
   const ytContainerRef = useRef(null);
   const rtcVideoRef = useRef(null);
-  const reactionCanvasRef = useRef(null);
+
 
   const [hlsInstance, setHlsInstance] = useState(null);
   const [dashPlayer, setDashPlayer] = useState(null);
@@ -106,31 +106,11 @@ export default function VideoPlayer({
           allow="autoplay; encrypted-media; fullscreen"
           allowFullScreen
         />
-        <div ref={reactionCanvasRef} id="reaction-canvas" className="reaction-canvas" />
       </div>
     );
   }
 
-  // Floating Reactions listener
-  useEffect(() => {
-    if (!socket) return;
-    const handleReaction = ({ emoji }) => {
-      const canvas = reactionCanvasRef.current;
-      if (!canvas) return;
-      const el = document.createElement('div');
-      el.className = 'floating-reaction';
-      el.innerHTML = emoji;
-      el.style.left = `${Math.random() * 80 + 10}%`;
-      canvas.appendChild(el);
-      setTimeout(() => {
-        if (el.parentNode) el.parentNode.removeChild(el);
-      }, 5000);
-    };
-    socket.on('reaction', handleReaction);
-    return () => {
-      socket.off('reaction', handleReaction);
-    };
-  }, [socket]);
+
 
   // Handle standard HTML5 video, HLS, or DASH lifecycle
   useEffect(() => {
@@ -536,8 +516,7 @@ export default function VideoPlayer({
         </div>
       )}
 
-      {/* Reaction floating layer */}
-      <div ref={reactionCanvasRef} id="reaction-canvas" className="reaction-canvas" />
+
 
       {/* Quality Picker */}
       {levels.length > 0 && (

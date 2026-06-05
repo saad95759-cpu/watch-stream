@@ -149,7 +149,7 @@ export default function Room({ roomId, onLeave }) {
   const [hideJoinLeftAlerts, setHideJoinLeftAlerts] = useState(false);
   const [participantsOnLeft, setParticipantsOnLeft] = useState(false);
 
-  const [languageOption, setLanguageOption] = useState('en');
+  const [languageOption, setLanguageOption] = useState(lang);
   const [windowBgStyle, setWindowBgStyle] = useState('acrylic');
   const [autoTranslateChat, setAutoTranslateChat] = useState(false);
   const [notifyInvites, setNotifyInvites] = useState(true);
@@ -173,8 +173,7 @@ export default function Room({ roomId, onLeave }) {
   const [sourceInput, setSourceInput] = useState('');
   const [extractStatus, setExtractStatus] = useState('');
 
-  // Floating emoji reactions overlay
-  const [floatingReactions, setFloatingReactions] = useState([]);
+
 
   // Extracted video metadata for quality picker thumbnail
   const [extractedMeta, setExtractedMeta] = useState({ title: '', thumbnail: null });
@@ -186,7 +185,6 @@ export default function Room({ roomId, onLeave }) {
   const [scannerUrl, setScannerUrl] = useState('');
   const [pasteHtmlText, setPasteHtmlText] = useState('');
   const [scanResults, setScanResults] = useState(null);
-  const [scanMetadata, setScanMetadata] = useState(null);
   const [scannerStatus, setScannerStatus] = useState('');
   const [scannerStatusKind, setScannerStatusKind] = useState('');
   const [scanning, setScanning] = useState(false);
@@ -248,10 +246,8 @@ export default function Room({ roomId, onLeave }) {
 
   // Rave App - Synchronize language settings option
   useEffect(() => {
-    if (languageOption && setLang) {
-      setLang(languageOption);
-    }
-  }, [languageOption, setLang]);
+    setLanguageOption(lang);
+  }, [lang]);
 
   const canControl = myRole === 'host' || myRole === 'admin' || myRole === 'superadmin';
 
@@ -515,15 +511,6 @@ export default function Room({ roomId, onLeave }) {
     socket.on('seek', onSeek);
     socket.on('playback-sync', onPlaybackSync);
 
-    // Floating emoji reactions broadcasted by server to all room members
-    const onReaction = ({ emoji }) => {
-      const id = Date.now() + Math.random();
-      const randomX = Math.floor(Math.random() * 60) + 20; // 20%–80% horizontal spread
-      setFloatingReactions(prev => [...prev, { id, emoji, x: randomX }]);
-      setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== id)), 3000);
-    };
-    socket.on('reaction', onReaction);
-
     return () => {
       socket.off('connect', handleJoin);
       socket.off('state', onState);
@@ -539,7 +526,6 @@ export default function Room({ roomId, onLeave }) {
       socket.off('pause', onPause);
       socket.off('seek', onSeek);
       socket.off('playback-sync', onPlaybackSync);
-      socket.off('reaction', onReaction);
     };
   }, [socket, roomId]);
 
@@ -1000,7 +986,6 @@ export default function Room({ roomId, onLeave }) {
 
       if (deepData.allStreams && deepData.allStreams.length > 0) {
         setScanResults(deepData.allStreams);
-        setScanMetadata({ title: deepData.title, thumbnail: deepData.thumbnail });
         setExtractToken(deepData.proxyToken || '');
         setScanSourceUrl(targetUrl);
         setExtractedMeta({ title: deepData.title || '', thumbnail: deepData.thumbnail || null });
@@ -1083,7 +1068,6 @@ export default function Room({ roomId, onLeave }) {
         setPasteModalOpen(false);
       } else if (data.streams && data.streams.length > 0) {
         setScanResults(data.streams);
-        setScanMetadata({ title: data.title, thumbnail: data.thumbnail });
         setExtractToken(data.proxyToken || '');
         setScannerStatus(`Found ${data.streams.length} stream(s).`);
         setScannerStatusKind('ok');
@@ -1143,7 +1127,6 @@ export default function Room({ roomId, onLeave }) {
         }
       } else if (data.streams && data.streams.length > 0) {
         setScanResults(data.streams);
-        setScanMetadata({ title: data.title, thumbnail: data.thumbnail });
         setExtractToken('');
         setScannerStatus(`Found ${data.streams.length} streams.`);
         setScannerStatusKind('ok');
@@ -1343,28 +1326,7 @@ export default function Room({ roomId, onLeave }) {
               mediaVolume={mediaVolume}
             />
 
-            {/* ── Floating Emoji Reactions Overlay ── */}
-            {floatingReactions.length > 0 && (
-              <div
-                style={{
-                  position: 'absolute', inset: 0,
-                  pointerEvents: 'none',
-                  zIndex: 100,
-                  overflow: 'hidden',
-                }}
-                aria-hidden="true"
-              >
-                {floatingReactions.map((r) => (
-                  <span
-                    key={r.id}
-                    className="reaction-float"
-                    style={{ left: `${r.x}%` }}
-                  >
-                    {r.emoji}
-                  </span>
-                ))}
-              </div>
-            )}
+
           </div>
 
           {canControl ? (
@@ -1676,7 +1638,7 @@ export default function Room({ roomId, onLeave }) {
                     <h4>General</h4>
                     <label className="rave-setting-item">
                       <span>Language</span>
-                      <select value={languageOption} onChange={(e) => setLanguageOption(e.target.value)}>
+                      <select value={languageOption} onChange={(e) => { setLanguageOption(e.target.value); setLang(e.target.value); }}>
                         <option value="en">Device Language (English)</option>
                         <option value="ar">العربية (Arabic)</option>
                       </select>
@@ -1927,107 +1889,65 @@ export default function Room({ roomId, onLeave }) {
 
             {scanResults && (
               <div id="scanner-results" style={{ textAlign: 'left', background: 'var(--bg)', padding: '8px', borderRadius: '8px' }}>
-                {/* Video Preview Card */}
-                {scanMetadata?.thumbnail && (
-                  <div 
-                    className="mb-4 w-full bg-[#0f172a] rounded-xl overflow-hidden border border-gray-700 shadow-lg"
-                    style={{
-                      marginBottom: '16px',
-                      width: '100%',
-                      backgroundColor: '#0f172a',
-                      borderRadius: '12px',
-                      overflow: 'hidden',
-                      border: '1px solid #374151',
-                      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.15)',
-                    }}
-                  >
-                    <img 
-                      src={scanMetadata.thumbnail} 
-                      alt={scanMetadata?.title || "Video Preview"} 
-                      className="w-full max-h-48 object-cover object-center"
-                      style={{
-                        width: '100%',
-                        maxHeight: '192px',
-                        objectFit: 'cover',
-                        objectPosition: 'center',
-                      }}
-                      onError={(e) => { e.target.style.display = 'none'; }} 
-                    />
-                    {scanMetadata?.title && (
-                      <div 
-                        className="p-2 w-full text-center bg-gray-800/80"
-                        style={{
-                          padding: '8px',
-                          width: '100%',
-                          textAlign: 'center',
-                          backgroundColor: 'rgba(31, 41, 55, 0.8)',
-                        }}
-                      >
-                         <h3 
-                           className="text-gray-200 text-sm font-semibold truncate px-2"
-                           style={{
-                             color: '#e5e7eb',
-                             fontSize: '14px',
-                             fontWeight: 600,
-                             overflow: 'hidden',
-                             textOverflow: 'ellipsis',
-                             whiteSpace: 'nowrap',
-                             paddingLeft: '8px',
-                             paddingRight: '8px',
-                             margin: 0,
-                           }}
-                         >
-                           {scanMetadata.title}
-                         </h3>
-                      </div>
-                    )}
-                  </div>
+                {/* Video thumbnail preview */}
+                {extractedMeta.thumbnail && (
+                  <img
+                    src={extractedMeta.thumbnail}
+                    alt="Video preview"
+                    style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px', display: 'block' }}
+                    onError={(e) => { e.target.style.display = 'none'; }}
+                  />
                 )}
-
-                {/* Stream Qualities List */}
-                <div className="flex flex-col gap-2" style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
-                  {scanResults.map((s, idx) => {
-                    const targetPage = scannerUrl || pasteHtmlText ? 'Scan Result' : 'Extracted Stream';
-                    let proxiedUrl = s.url;
-                    try {
-                      const b64Url = btoa(unescape(encodeURIComponent(s.url)));
-                      const b64Ref = btoa(unescape(encodeURIComponent(targetPage)));
-                      proxiedUrl = `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}&ptk=${encodeURIComponent(extractToken)}`;
-                    } catch {
-                      proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(s.url)}&ref=${encodeURIComponent(targetPage)}&ptk=${encodeURIComponent(extractToken)}`;
-                    }
-                    
-                    return (
-                      <button
-                        key={idx}
-                        className="btn scanner-stream-btn"
-                        style={{ width: '100%', textAlign: 'left', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px' }}
-                        onClick={() => {
-                          // Use the fresh URLs from the initial extraction directly — they are seconds old and valid.
-                          // The HLS retry layer handles any transient errors without needing another yt-dlp round-trip.
-                          socket?.emit('set-source', {
-                            source: proxiedUrl,
-                            sourceType: s.type || 'mp4',
-                            title: s.label || 'Stream',
-                            sourcePage: scanSourceUrl || undefined,
-                            proxyToken: extractToken,
-                          });
-                          setPasteModalOpen(false);
-                          setExtractStatus('Stream loaded!');
-                          setExtractKind('ok');
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span className={`stream-badge stream-badge-${s.type}`}>{s.type.toUpperCase()}</span>
-                          <span>{s.label || 'Stream'}</span>
-                        </div>
-                        <div style={{ fontSize: '11px', color: 'var(--subtext)', display: 'flex', gap: '12px' }}>
-                          {s.sizeMb && <span>📦 {s.sizeMb} MB</span>}
-                          {s.durationSec && <span>⏱️ {Math.floor(s.durationSec / 60)}:{(s.durationSec % 60).toString().padStart(2, '0')}</span>}
-                        </div>
-                      </button>
-                    );
-                  })}
+                {/* Video title */}
+                {extractedMeta.title && (
+                  <p style={{ fontSize: '15px', fontWeight: 'bold', margin: '0 0 10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                    {extractedMeta.title}
+                  </p>
+                )}
+                {/* Quality stream buttons */}
+                <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                {scanResults.map((s, idx) => {
+                  const targetPage = scannerUrl || pasteHtmlText ? 'Scan Result' : 'Extracted Stream';
+                  let proxiedUrl = s.url;
+                  try {
+                    const b64Url = btoa(unescape(encodeURIComponent(s.url)));
+                    const b64Ref = btoa(unescape(encodeURIComponent(targetPage)));
+                    proxiedUrl = `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}&ptk=${encodeURIComponent(extractToken)}`;
+                  } catch {
+                    proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(s.url)}&ref=${encodeURIComponent(targetPage)}&ptk=${encodeURIComponent(extractToken)}`;
+                  }
+                  
+                  return (
+                    <button
+                      key={idx}
+                      className="btn scanner-stream-btn"
+                      style={{ width: '100%', textAlign: 'left', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px' }}
+                      onClick={() => {
+                        // Use the fresh URLs from the initial extraction directly — they are seconds old and valid.
+                        // The HLS retry layer handles any transient errors without needing another yt-dlp round-trip.
+                        socket?.emit('set-source', {
+                          source: proxiedUrl,
+                          sourceType: s.type || 'mp4',
+                          title: s.label || 'Stream',
+                          sourcePage: scanSourceUrl || undefined,
+                          proxyToken: extractToken,
+                        });
+                        setPasteModalOpen(false);
+                        setExtractStatus('Stream loaded!');
+                        setExtractKind('ok');
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className={`stream-badge stream-badge-${s.type}`}>{s.type.toUpperCase()}</span>
+                        <span>{s.label || 'Stream'}</span>
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--subtext)', display: 'flex', gap: '12px' }}>
+                        {s.sizeMb && <span>📦 {s.sizeMb} MB</span>}
+                        {s.durationSec && <span>⏱️ {Math.floor(s.durationSec / 60)}:{(s.durationSec % 60).toString().padStart(2, '0')}</span>}
+                      </div>
+                    </button>
+                  );
+                })}
                 </div>
               </div>
             )}

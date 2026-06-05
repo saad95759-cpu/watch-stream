@@ -641,15 +641,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
         proxyToken: htmlToken,
         allStreams: htmlStreams.length > 1 ? htmlStreams : undefined,
       };
-      return res.json({
-        streams: htmlStreams || [{ url: best.url, type: best.type, label: "Direct Video" }],
-        title: htmlTitle || "Unknown Title",
-        thumbnail: htmlThumbnail || "",
-        streamUrl: best.url,
-        type: best.type,
-        proxyToken: htmlToken,
-        sourcePage: url,
-      });
+      return res.json(data);
     }
 
     // --- Slow fallback: yt-dlp (15-30s) ---
@@ -674,15 +666,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           allStreams: allStreams.length > 1 ? allStreams : undefined,
         };
         // Do NOT cache native hosts — their CDN URLs expire quickly
-        return res.json({
-          streams: allStreams || [{ url: best.url, type: best.type, label: "Direct Video" }],
-          title: info?.title || "Unknown Title",
-          thumbnail: info?.thumbnail || "",
-          streamUrl: best.url,
-          type: best.type,
-          proxyToken: token,
-          sourcePage: url,
-        });
+        return res.json(data);
       }
       return res.status(422).json({ code: "NO_STREAM_FOUND", error: "No playable stream found for this URL." });
     } catch (e) {
@@ -746,7 +730,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
             title: scanned.title || null,
             duration: null,
             isLive: false,
-            thumbnail: scanned.thumbnail || null,
+            thumbnail: null,
             sourcePage: scanned.sourcePage || effectiveUrl,
             allStreams: scanned.streams,
             proxyToken: token,
@@ -756,15 +740,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
             if (oldest !== undefined) extractCache.delete(oldest);
           }
           extractCache.set(url, { t: Date.now(), data });
-          return res.json({
-            streams: scanned.streams || [{ url: best.url, type: best.type, label: "Direct Video" }],
-            title: scanned.title || "Unknown Title",
-            thumbnail: scanned.thumbnail || "",
-            streamUrl: best.url,
-            type: best.type,
-            proxyToken: token,
-            sourcePage: scanned.sourcePage || effectiveUrl,
-          });
+          return res.json(data);
         }
       }
     } catch { /* fall through to yt-dlp */ }
@@ -783,7 +759,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           title: browserResult.title || "Extracted Stream",
           duration: null,
           isLive: false,
-          thumbnail: browserResult.thumbnail || null,
+          thumbnail: null,
           sourcePage: url,
           proxyToken: token,
         };
@@ -792,15 +768,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           if (oldest !== undefined) extractCache.delete(oldest);
         }
         extractCache.set(url, { t: Date.now(), data });
-        return res.json({
-          streams: [{ url: data.streamUrl, type: data.type, label: "Direct Video" }],
-          title: data.title || "Unknown Title",
-          thumbnail: data.thumbnail || "",
-          streamUrl: data.streamUrl,
-          type: data.type,
-          proxyToken: data.proxyToken,
-          sourcePage: data.sourcePage,
-        });
+        return res.json(data);
       }
     }
     try {
@@ -816,7 +784,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
             title: browserResult.title || null,
             duration: null,
             isLive: false,
-            thumbnail: browserResult.thumbnail || null,
+            thumbnail: null,
             sourcePage: url,
             proxyToken: token,
           };
@@ -825,15 +793,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
             if (oldest !== undefined) extractCache.delete(oldest);
           }
           extractCache.set(url, { t: Date.now(), data });
-          return res.json({
-            streams: [{ url: data.streamUrl, type: data.type, label: "Direct Video" }],
-            title: data.title || "Unknown Title",
-            thumbnail: data.thumbnail || "",
-            streamUrl: data.streamUrl,
-            type: data.type,
-            proxyToken: data.proxyToken,
-            sourcePage: data.sourcePage,
-          });
+          return res.json(data);
         }
       }
       throw ytErr;
@@ -859,15 +819,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
       if (oldest !== undefined) extractCache.delete(oldest);
     }
     extractCache.set(url, { t: Date.now(), data });
-    res.json({
-      streams: [{ url: best.url, type: best.type, label: "Direct Video" }],
-      title: info?.title || "Unknown Title",
-      thumbnail: info?.thumbnail || "",
-      streamUrl: best.url,
-      type: best.type,
-      proxyToken: token,
-      sourcePage: url,
-    });
+    res.json(data);
   } catch (e) {
     let msg = String(e?.message || "Extraction failed");
     let code = e?.code || "EXTRACTION_FAILED";
@@ -1257,13 +1209,7 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
         const token = storeProxySession(cookies, url, BROWSER_UA);
         result.proxyToken = token;
         extractCache.set(url, { t: Date.now(), data: result });
-        return res.json({
-          streams: result.streams || [],
-          title: result.title || "Unknown Title",
-          thumbnail: result.thumbnail || "",
-          sourcePage: result.sourcePage || url,
-          proxyToken: token,
-        });
+        return res.json(result);
       }
     }
     } catch { /* fall through to yt-dlp */ }
@@ -1284,13 +1230,7 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
       proxyToken: token,
     };
     extractCache.set(url, { t: Date.now(), data: responseData });
-    return res.json({
-      streams: responseData.streams || [],
-      title: responseData.title || "Unknown Title",
-      thumbnail: responseData.thumbnail || "",
-      sourcePage: responseData.sourcePage || url,
-      proxyToken: responseData.proxyToken,
-    });
+    return res.json(responseData);
   } catch (ytErr) {
     const msg = String(ytErr?.message || "");
     if (/drm|widevine|fairplay|playready/i.test(msg)) {
@@ -1323,13 +1263,7 @@ app.post(`${BASE_PATH}api/fetch-scan`, async (req, res) => {
             const token2 = storeProxySession(cookies2, url, BROWSER_UA);
             result2.proxyToken = token2;
             extractCache.set(url, { t: Date.now(), data: result2 });
-            return res.json({
-              streams: result2.streams || [],
-              title: result2.title || "Unknown Title",
-              thumbnail: result2.thumbnail || "",
-              sourcePage: result2.sourcePage || url,
-              proxyToken: token2,
-            });
+            return res.json(result2);
           }
         }
       } catch { /* ignore */ }
