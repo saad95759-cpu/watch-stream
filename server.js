@@ -730,7 +730,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
             title: scanned.title || null,
             duration: null,
             isLive: false,
-            thumbnail: null,
+            thumbnail: scanned.thumbnail || null,
             sourcePage: scanned.sourcePage || effectiveUrl,
             allStreams: scanned.streams,
             proxyToken: token,
@@ -759,7 +759,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
           title: browserResult.title || "Extracted Stream",
           duration: null,
           isLive: false,
-          thumbnail: null,
+          thumbnail: browserResult.thumbnail || null,
           sourcePage: url,
           proxyToken: token,
         };
@@ -784,7 +784,7 @@ app.post(`${BASE_PATH}api/extract`, async (req, res) => {
             title: browserResult.title || null,
             duration: null,
             isLive: false,
-            thumbnail: null,
+            thumbnail: browserResult.thumbnail || null,
             sourcePage: url,
             proxyToken: token,
           };

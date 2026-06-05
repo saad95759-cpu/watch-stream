@@ -186,6 +186,7 @@ export default function Room({ roomId, onLeave }) {
   const [scannerUrl, setScannerUrl] = useState('');
   const [pasteHtmlText, setPasteHtmlText] = useState('');
   const [scanResults, setScanResults] = useState(null);
+  const [scanResult, setScanResult] = useState(null);
   const [scannerStatus, setScannerStatus] = useState('');
   const [scannerStatusKind, setScannerStatusKind] = useState('');
   const [scanning, setScanning] = useState(false);
@@ -999,6 +1000,7 @@ export default function Room({ roomId, onLeave }) {
 
       if (deepData.allStreams && deepData.allStreams.length > 0) {
         setScanResults(deepData.allStreams);
+        setScanResult(deepData);
         setExtractToken(deepData.proxyToken || '');
         setScanSourceUrl(targetUrl);
         setExtractedMeta({ title: deepData.title || '', thumbnail: deepData.thumbnail || null });
@@ -1081,6 +1083,7 @@ export default function Room({ roomId, onLeave }) {
         setPasteModalOpen(false);
       } else if (data.streams && data.streams.length > 0) {
         setScanResults(data.streams);
+        setScanResult(data);
         setExtractToken(data.proxyToken || '');
         setScannerStatus(`Found ${data.streams.length} stream(s).`);
         setScannerStatusKind('ok');
@@ -1140,6 +1143,7 @@ export default function Room({ roomId, onLeave }) {
         }
       } else if (data.streams && data.streams.length > 0) {
         setScanResults(data.streams);
+        setScanResult(data);
         setExtractToken('');
         setScannerStatus(`Found ${data.streams.length} streams.`);
         setScannerStatusKind('ok');
@@ -1923,65 +1927,109 @@ export default function Room({ roomId, onLeave }) {
 
             {scanResults && (
               <div id="scanner-results" style={{ textAlign: 'left', background: 'var(--bg)', padding: '8px', borderRadius: '8px' }}>
-                {/* Video thumbnail preview */}
-                {extractedMeta.thumbnail && (
-                  <img
-                    src={extractedMeta.thumbnail}
-                    alt="Video preview"
-                    style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px', display: 'block' }}
-                    onError={(e) => { e.target.style.display = 'none'; }}
-                  />
-                )}
-                {/* Video title */}
-                {extractedMeta.title && (
-                  <p style={{ fontSize: '15px', fontWeight: 'bold', margin: '0 0 10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
-                    {extractedMeta.title}
-                  </p>
-                )}
-                {/* Quality stream buttons */}
-                <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-                {scanResults.map((s, idx) => {
-                  const targetPage = scannerUrl || pasteHtmlText ? 'Scan Result' : 'Extracted Stream';
-                  let proxiedUrl = s.url;
-                  try {
-                    const b64Url = btoa(unescape(encodeURIComponent(s.url)));
-                    const b64Ref = btoa(unescape(encodeURIComponent(targetPage)));
-                    proxiedUrl = `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}&ptk=${encodeURIComponent(extractToken)}`;
-                  } catch {
-                    proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(s.url)}&ref=${encodeURIComponent(targetPage)}&ptk=${encodeURIComponent(extractToken)}`;
-                  }
-                  
-                  return (
-                    <button
-                      key={idx}
-                      className="btn scanner-stream-btn"
-                      style={{ width: '100%', textAlign: 'left', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px' }}
-                      onClick={() => {
-                        // Use the fresh URLs from the initial extraction directly — they are seconds old and valid.
-                        // The HLS retry layer handles any transient errors without needing another yt-dlp round-trip.
-                        socket?.emit('set-source', {
-                          source: proxiedUrl,
-                          sourceType: s.type || 'mp4',
-                          title: s.label || 'Stream',
-                          sourcePage: scanSourceUrl || undefined,
-                          proxyToken: extractToken,
-                        });
-                        setPasteModalOpen(false);
-                        setExtractStatus('Stream loaded!');
-                        setExtractKind('ok');
+                {/* Video Preview Card */}
+                {scanResult?.thumbnail && (
+                  <div 
+                    className="mb-4 flex flex-col items-center bg-[#0f172a] rounded-xl overflow-hidden border border-gray-700 shadow-lg"
+                    style={{
+                      marginBottom: '16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      backgroundColor: '#0f172a',
+                      borderRadius: '12px',
+                      overflow: 'hidden',
+                      border: '1px solid #374151',
+                      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.15)',
+                    }}
+                  >
+                    <img 
+                      src={scanResult.thumbnail} 
+                      alt={scanResult?.title || "Video Preview"} 
+                      className="w-full max-h-48 object-cover object-center"
+                      style={{
+                        width: '100%',
+                        maxHeight: '192px',
+                        objectFit: 'cover',
+                        objectPosition: 'center',
                       }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span className={`stream-badge stream-badge-${s.type}`}>{s.type.toUpperCase()}</span>
-                        <span>{s.label || 'Stream'}</span>
+                      onError={(e) => { e.target.style.display = 'none'; }} 
+                    />
+                    {scanResult?.title && (
+                      <div 
+                        className="p-3 w-full text-center bg-gray-800/50"
+                        style={{
+                          padding: '12px',
+                          width: '100%',
+                          textAlign: 'center',
+                          backgroundColor: 'rgba(31, 41, 55, 0.5)',
+                        }}
+                      >
+                         <h3 
+                           className="text-gray-100 text-sm md:text-base font-semibold truncate px-2"
+                           style={{
+                             color: '#f3f4f6',
+                             fontSize: '14px',
+                             fontWeight: 600,
+                             overflow: 'hidden',
+                             textOverflow: 'ellipsis',
+                             whiteSpace: 'nowrap',
+                             paddingLeft: '8px',
+                             paddingRight: '8px',
+                             margin: 0,
+                           }}
+                         >
+                           {scanResult.title}
+                         </h3>
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--subtext)', display: 'flex', gap: '12px' }}>
-                        {s.sizeMb && <span>📦 {s.sizeMb} MB</span>}
-                        {s.durationSec && <span>⏱️ {Math.floor(s.durationSec / 60)}:{(s.durationSec % 60).toString().padStart(2, '0')}</span>}
-                      </div>
-                    </button>
-                  );
-                })}
+                    )}
+                  </div>
+                )}
+
+                {/* Stream Qualities List */}
+                <div className="flex flex-col gap-2" style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
+                  {scanResults.map((s, idx) => {
+                    const targetPage = scannerUrl || pasteHtmlText ? 'Scan Result' : 'Extracted Stream';
+                    let proxiedUrl = s.url;
+                    try {
+                      const b64Url = btoa(unescape(encodeURIComponent(s.url)));
+                      const b64Ref = btoa(unescape(encodeURIComponent(targetPage)));
+                      proxiedUrl = `/watch-party/api/hls-proxy?b64=${encodeURIComponent(b64Url)}&r64=${encodeURIComponent(b64Ref)}&ptk=${encodeURIComponent(extractToken)}`;
+                    } catch {
+                      proxiedUrl = `/watch-party/api/hls-proxy?url=${encodeURIComponent(s.url)}&ref=${encodeURIComponent(targetPage)}&ptk=${encodeURIComponent(extractToken)}`;
+                    }
+                    
+                    return (
+                      <button
+                        key={idx}
+                        className="btn scanner-stream-btn"
+                        style={{ width: '100%', textAlign: 'left', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px' }}
+                        onClick={() => {
+                          // Use the fresh URLs from the initial extraction directly — they are seconds old and valid.
+                          // The HLS retry layer handles any transient errors without needing another yt-dlp round-trip.
+                          socket?.emit('set-source', {
+                            source: proxiedUrl,
+                            sourceType: s.type || 'mp4',
+                            title: s.label || 'Stream',
+                            sourcePage: scanSourceUrl || undefined,
+                            proxyToken: extractToken,
+                          });
+                          setPasteModalOpen(false);
+                          setExtractStatus('Stream loaded!');
+                          setExtractKind('ok');
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span className={`stream-badge stream-badge-${s.type}`}>{s.type.toUpperCase()}</span>
+                          <span>{s.label || 'Stream'}</span>
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--subtext)', display: 'flex', gap: '12px' }}>
+                          {s.sizeMb && <span>📦 {s.sizeMb} MB</span>}
+                          {s.durationSec && <span>⏱️ {Math.floor(s.durationSec / 60)}:{(s.durationSec % 60).toString().padStart(2, '0')}</span>}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
