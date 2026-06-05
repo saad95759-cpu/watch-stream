@@ -9,203 +9,78 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFile, exec } from "node:child_process";
 import dns from "node:dns/promises";
-import dnsCallback from "node:dns";
 import net from "node:net";
 import { Readable } from "node:stream";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
-import nodemailer from "nodemailer";
 import mongoose from "mongoose";
 import cron from "node-cron";
 import { connectDB, RoomLog, IpBan } from "./db.js";
 
 await connectDB();
 
-// Startup warning: remind operator to configure an HTTP email API on Render
+// Startup warning: remind operator to set RESEND_API_KEY on Render
 if (
   (process.env.RENDER || process.env.RENDER_SERVICE_NAME || process.env.RENDER_INSTANCE_ID) &&
-  !process.env.RESEND_API_KEY && !process.env.SENDGRID_API_KEY && !process.env.BREVO_API_KEY
+  !process.env.RESEND_API_KEY
 ) {
   console.warn(
-    "[Email] ⚠️  WARNING: No HTTP email API key detected (RESEND_API_KEY / SENDGRID_API_KEY / BREVO_API_KEY).\n" +
-    "[Email]    Render blocks all outbound SMTP ports — email reports will FAIL until you set one.\n" +
-    "[Email]    → Recommended: Sign up free at https://resend.com and set RESEND_API_KEY in Render Dashboard > Environment."
+    "[Email] ⚠️  WARNING: RESEND_API_KEY is not set.\n" +
+    "[Email]    Render blocks all outbound SMTP ports — email reports will NOT be sent.\n" +
+    "[Email]    → Sign up free at https://resend.com and add RESEND_API_KEY in Render Dashboard > Environment."
   );
 }
 
 let lastEmailSentTime = 0;
 
-// Resolve smtp.gmail.com to IPv4 address (queries ONLY 'A' records, completely avoiding IPv6 addresses)
-function resolveSmtpHost() {
-  return new Promise((resolve) => {
-    dnsCallback.resolve4('smtp.gmail.com', (err, addresses) => {
-      if (err || !addresses || addresses.length === 0) {
-        console.warn("[Email] DNS resolve4 for smtp.gmail.com failed, using default hostname:", err);
-        resolve('smtp.gmail.com'); // Fallback to name if DNS fails
-      } else {
-        // Pick a random IPv4 from the resolved list
-        const ip = addresses[Math.floor(Math.random() * addresses.length)];
-        resolve(ip);
-      }
-    });
-  });
-}
-
-// A robust email utility supporting direct HTTP APIs (to bypass outbound port blocks) and SMTP fallback
-async function sendEmailViaHttpOrSmtp({ to, subject, text, filename, content }) {
-  // Option 1: Resend HTTP API (Port 443 - never blocked)
-  if (process.env.RESEND_API_KEY) {
-    console.log("[Email] Attempting HTTP send via Resend API...");
-    const fromEmail = process.env.SMTP_USER || 'onboarding@resend.dev';
-    const resp = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: fromEmail,
-        to: to,
-        subject: subject,
-        html: text.replace(/\n/g, '<br>'),
-        attachments: [
-          {
-            filename: filename,
-            content: Buffer.from(content).toString('base64'),
-          }
-        ]
-      })
-    });
-    if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(`Resend API error: ${resp.status} - ${errText}`);
-    }
-    return await resp.json();
+/**
+ * Send an email via the Resend HTTP API (port 443 — never blocked by Render).
+ * Returns true on success, false on missing key or API error (never throws).
+ * @param {{ to: string, subject: string, text: string, attachments?: Array<{filename:string, content:string}> }} opts
+ */
+async function sendEmailViaResend({ to, subject, text, attachments }) {
+  const RESEND_API_KEY = process.env.RESEND_API_KEY;
+  if (!RESEND_API_KEY) {
+    console.warn("[Email] Blocked: RESEND_API_KEY is not set. Skipping email.");
+    return false;
   }
 
-  // Option 2: SendGrid HTTP API (Port 443 - never blocked)
-  if (process.env.SENDGRID_API_KEY) {
-    console.log("[Email] Attempting HTTP send via SendGrid API...");
-    const resp = await fetch('https://api.sendgrid.com/v3/mail/send', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.SENDGRID_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        personalizations: [{ to: [{ email: to }] }],
-        from: { email: process.env.SMTP_USER || 'admin@watchparty.live' },
-        subject: subject,
-        content: [{ type: 'text/html', value: text.replace(/\n/g, '<br>') }],
-        attachments: [
-          {
-            content: Buffer.from(content).toString('base64'),
-            filename: filename,
-            type: 'text/csv',
-            disposition: 'attachment',
-          }
-        ]
-      })
-    });
-    if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(`SendGrid API error: ${resp.status} - ${errText}`);
-    }
-    return;
-  }
-
-  // Option 3: Brevo HTTP API (Port 443 - never blocked)
-  if (process.env.BREVO_API_KEY || process.env.SENDINBLUE_API_KEY) {
-    console.log("[Email] Attempting HTTP send via Brevo API...");
-    const apiKey = process.env.BREVO_API_KEY || process.env.SENDINBLUE_API_KEY;
-    const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        sender: { email: process.env.SMTP_USER || 'admin@watchparty.live' },
-        to: [{ email: to }],
-        subject: subject,
-        htmlContent: text.replace(/\n/g, '<br>'),
-        attachment: [
-          {
-            name: filename,
-            content: Buffer.from(content).toString('base64'),
-          }
-        ]
-      })
-    });
-    if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(`Brevo API error: ${resp.status} - ${errText}`);
-    }
-    return await resp.json();
-  }
-
-  // Option 4: SMTP Fallback
-  console.log("[Email] No HTTP API key set. Falling back to SMTP...");
-
-  // ── Render / PaaS firewall guard ─────────────────────────────────────────
-  // Render (and most PaaS platforms) hard-block ALL outbound SMTP ports
-  // (25, 465, 587) at the network firewall level. Attempting SMTP here will
-  // always produce ETIMEDOUT after 15 s — wasting time and filling logs.
-  // Fail immediately with a clear, actionable message instead.
-  const isRendered = !!(
-    process.env.RENDER ||
-    process.env.RENDER_SERVICE_NAME ||
-    process.env.RENDER_INSTANCE_ID
-  );
-  if (isRendered) {
-    throw new Error(
-      "Failed to send email: Connection timeout → Render blocks all outbound SMTP ports (25, 465, 587) for security. " +
-      "Please register a free account on Resend.com (takes 1 minute) and set RESEND_API_KEY environment variable " +
-      "on your Render dashboard to send emails via HTTP."
-    );
-  }
-  // ─────────────────────────────────────────────────────────────────────────
-
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    throw new Error("SMTP credentials missing. Please set either RESEND_API_KEY, SENDGRID_API_KEY, BREVO_API_KEY, or SMTP_USER/SMTP_PASS.");
-  }
-
-  const resolvedIp = await resolveSmtpHost();
-  console.log(`[Email] Resolved smtp.gmail.com to IPv4: ${resolvedIp}`);
-
-  const dynamicTransporter = nodemailer.createTransport({
-    host: resolvedIp,
-    port: 465,
-    secure: true,           // SSL on port 465 — avoids STARTTLS negotiation issues
-    family: 4,              // FORCE IPv4 TO BYPASS RENDER IPv6 NETWORK ERRORS (ENETUNREACH/ETIMEDOUT)
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
-    },
-    tls: {
-      servername: 'smtp.gmail.com' // CRITICAL: Forces TLS to verify certificate against 'smtp.gmail.com' even though we connected via IP
-    },
-    connectionTimeout: 8000,   // 8s to establish TCP connection
-    greetingTimeout: 8000,     // 8s to receive SMTP greeting
-    socketTimeout: 10000,      // 10s of socket inactivity before giving up
-  });
-
-  const mailOptions = {
-    from: process.env.SMTP_USER,
-    to: to,
-    subject: subject,
-    text: text,
-    attachments: [{ filename: filename, content: content }]
+  const payload = {
+    from: "Watch Stream <onboarding@resend.dev>",
+    to: [to],
+    subject,
+    text,
   };
 
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('SMTP timeout — email server took too long to respond.')), 25000);
-    dynamicTransporter.sendMail(mailOptions, (err, info) => {
-      clearTimeout(timer);
-      if (err) reject(err);
-      else resolve(info);
+  if (attachments && attachments.length > 0) {
+    payload.attachments = attachments.map(att => ({
+      filename: att.filename,
+      content: Buffer.from(att.content).toString('base64'),
+    }));
+  }
+
+  try {
+    console.log(`[Email] Sending via Resend API to ${to}...`);
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
     });
-  });
+
+    if (!res.ok) {
+      const err = await res.text();
+      console.error(`[Email] Resend API error ${res.status}:`, err);
+      return false;
+    }
+    console.log(`[Email] Resend API: email delivered successfully.`);
+    return true;
+  } catch (err) {
+    console.error('[Email] Fetch to Resend failed:', err.message);
+    return false;
+  }
 }
 
 function extractClientIp(req, socket) {
@@ -1419,10 +1294,9 @@ app.get(`${BASE_PATH}api/admin/email-report-instant`, async (req, res) => {
     return res.status(403).json({ error: "Unauthorized" });
   }
 
-  // Validate configuration checks
-  const hasHttpKey = process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY || process.env.BREVO_API_KEY || process.env.SENDINBLUE_API_KEY;
-  if (!hasHttpKey && (!process.env.SMTP_USER || !process.env.SMTP_PASS)) {
-    return res.status(500).json({ error: "Email not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, BREVO_API_KEY, or SMTP environment variables." });
+  // Validate configuration
+  if (!process.env.RESEND_API_KEY) {
+    return res.status(500).json({ error: "Email not configured. Set RESEND_API_KEY in your environment variables." });
   }
   if (!process.env.REPORT_RECEIVER_EMAIL) {
     return res.status(500).json({ error: "Email not configured. Set REPORT_RECEIVER_EMAIL environment variable." });
@@ -1445,33 +1319,22 @@ app.get(`${BASE_PATH}api/admin/email-report-instant`, async (req, res) => {
       csv += `${ts},${type},"${name}","${text}"\n`;
     }
 
-    const subject = `Admin Report for Room: ${roomId}`;
-    const textContent = `Attached is the CSV report for room ${roomId}.`;
-    const filename = `room-${roomId}-logs.csv`;
-
-    await sendEmailViaHttpOrSmtp({
+    const sent = await sendEmailViaResend({
       to: process.env.REPORT_RECEIVER_EMAIL,
-      subject,
-      text: textContent,
-      filename,
-      content: csv
+      subject: `Admin Report for Room: ${roomId}`,
+      text: `Attached is the CSV report for room ${roomId}.`,
+      attachments: [{ filename: `room-${roomId}-logs.csv`, content: csv }],
     });
 
+    if (!sent) {
+      return res.status(500).json({ error: "Failed to send email via Resend. Check RESEND_API_KEY and server logs." });
+    }
     // Only update the cooldown timer AFTER a successful send
     lastEmailSentTime = Date.now();
     res.status(200).json({ success: true, message: "Email sent successfully" });
   } catch (err) {
     console.error("EMAIL ERROR:", err);
-    const msg = err.message || 'Unknown error';
-    let hint = '';
-    if (!hasHttpKey) {
-      if (/invalid login|username.*password|authentication/i.test(msg)) {
-        hint = ' → Make sure SMTP_PASS is a Gmail App Password, not your regular Gmail password. Generate one at myaccount.google.com > Security > App Passwords.';
-      } else if (/timeout|etimedout|conn/i.test(msg)) {
-        hint = ' → Render blocks all outbound SMTP ports (25, 465, 587) for security. Please register a free account on Resend.com (takes 1 minute) and set RESEND_API_KEY environment variable on your dashboard to send emails via HTTP.';
-      }
-    }
-    res.status(500).json({ error: "Failed to send email: " + msg.slice(0, 200) + hint });
+    res.status(500).json({ error: "Failed to send email: " + (err.message || 'Unknown error').slice(0, 200) });
   }
 });
 
@@ -1481,10 +1344,9 @@ app.post(`${BASE_PATH}api/admin/email-master-report`, async (req, res) => {
     return res.status(403).json({ error: "Unauthorized" });
   }
 
-  // Validate configuration checks
-  const hasHttpKey = process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY || process.env.BREVO_API_KEY || process.env.SENDINBLUE_API_KEY;
-  if (!hasHttpKey && (!process.env.SMTP_USER || !process.env.SMTP_PASS)) {
-    return res.status(500).json({ error: "Email not configured. Set RESEND_API_KEY, SENDGRID_API_KEY, BREVO_API_KEY, or SMTP environment variables." });
+  // Validate configuration
+  if (!process.env.RESEND_API_KEY) {
+    return res.status(500).json({ error: "Email not configured. Set RESEND_API_KEY in your environment variables." });
   }
   if (!process.env.REPORT_RECEIVER_EMAIL) {
     return res.status(500).json({ error: "Email not configured. Set REPORT_RECEIVER_EMAIL environment variable." });
@@ -1517,33 +1379,22 @@ app.post(`${BASE_PATH}api/admin/email-master-report`, async (req, res) => {
       csv += `${ts},${type},${roomId},${sessionId},${ip},${role},"${text.replace(/"/g, '""')}"\n`;
     }
 
-    const subject = `Master Logs Report - ${logs.length} entries`;
-    const textContent = `Attached is the CSV report containing ${logs.length} selected/filtered master log entries.`;
-    const filename = `master-logs-${new Date().toISOString().slice(0, 10)}.csv`;
-
-    await sendEmailViaHttpOrSmtp({
+    const sent = await sendEmailViaResend({
       to: process.env.REPORT_RECEIVER_EMAIL,
-      subject,
-      text: textContent,
-      filename,
-      content: csv
+      subject: `Master Logs Report - ${logs.length} entries`,
+      text: `Attached is the CSV report containing ${logs.length} selected/filtered master log entries.`,
+      attachments: [{ filename: `master-logs-${new Date().toISOString().slice(0, 10)}.csv`, content: csv }],
     });
 
+    if (!sent) {
+      return res.status(500).json({ error: "Failed to send email via Resend. Check RESEND_API_KEY and server logs." });
+    }
     // Only update the cooldown timer AFTER a successful send
     lastEmailSentTime = Date.now();
     res.status(200).json({ success: true, message: "Master report email sent successfully" });
   } catch (err) {
     console.error("MASTER EMAIL ERROR:", err);
-    const msg = err.message || 'Unknown error';
-    let hint = '';
-    if (!hasHttpKey) {
-      if (/invalid login|username.*password|authentication/i.test(msg)) {
-        hint = ' → Make sure SMTP_PASS is a Gmail App Password, not your regular Gmail password. Generate one at myaccount.google.com > Security > App Passwords.';
-      } else if (/timeout|etimedout|conn/i.test(msg)) {
-        hint = ' → Render blocks all outbound SMTP ports (25, 465, 587) for security. Please register a free account on Resend.com (takes 1 minute) and set RESEND_API_KEY environment variable on your dashboard to send emails via HTTP.';
-      }
-    }
-    res.status(500).json({ error: "Failed to send email: " + msg.slice(0, 200) + hint });
+    res.status(500).json({ error: "Failed to send email: " + (err.message || 'Unknown error').slice(0, 200) });
   }
 });
 
@@ -3230,17 +3081,16 @@ async function run48HourPurge() {
     const csvData = headers.join(",") + "\n" + rows.join("\n");
     
     const execTime = new Date().toISOString();
-    await sendEmailViaHttpOrSmtp({
+    await sendEmailViaResend({
       to: "saad95759@gmail.com",
       subject: `[Watch Stream] 48-Hour Log Purge Report - ${execTime}`,
       text: `Automated 48-hour purge executed at ${execTime}.\n\nTotal logs purged: ${expiredLogs.length}\nDuration covered: Everything older than ${cutoffDate.toISOString()}.\n\nSee attached CSV for details.`,
-      filename: `purge-report-${execTime.replace(/:/g, '-')}.csv`,
-      content: csvData
+      attachments: [{ filename: `purge-report-${execTime.replace(/:/g, '-')}.csv`, content: csvData }],
     });
-    
+
     const idsToDelete = expiredLogs.map(l => l._id);
     await RoomLog.deleteMany({ _id: { $in: idsToDelete } });
-    console.log(`Successfully purged and emailed ${expiredLogs.length} logs.`);
+    console.log(`[Purge] Successfully purged and emailed ${expiredLogs.length} logs.`);
   } catch (err) {
     console.error("48-Hour Purge failed:", err);
   }
@@ -3300,12 +3150,11 @@ cron.schedule("0 */12 * * *", async () => {
       csv += `${ts},${rid},${type},"${name}","${text}"\n`;
     }
 
-    await sendEmailViaHttpOrSmtp({
+    await sendEmailViaResend({
       to: receiver,
       subject: `Bi-Daily System Report - Watch Stream`,
       text: `Attached is the automated bi-daily CSV report.`,
-      filename: `system-report-${Date.now()}.csv`,
-      content: csv
+      attachments: [{ filename: `system-report-${Date.now()}.csv`, content: csv }],
     });
     console.log("[CRON] Bi-daily email report sent.");
   } catch (err) {
