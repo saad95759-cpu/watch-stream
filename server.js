@@ -3058,18 +3058,29 @@ io.on("connection", (socket) => {
   });
 });
 
+// ── 48-Hour Log Purge ────────────────────────────────────────────────────────
+// Cycle: every 48 h → email ALL logs as CSV → delete them → fresh start.
+// Logs are only deleted AFTER confirmed email delivery.
+// If RESEND_API_KEY is missing, logs are purged anyway (DB health) with a warning.
 async function run48HourPurge() {
+  console.log("[Purge] ▶ Starting 48-hour log purge cycle...");
   try {
     const cutoffDate = new Date(Date.now() - 48 * 60 * 60 * 1000);
     const expiredLogs = await RoomLog.find({ createdAt: { $lt: cutoffDate } }).lean();
-    
-    if (expiredLogs.length === 0) return;
-    
-    const headers = ["Timestamp", "Type", "RoomId", "SessionId", "ClientIP", "Role", "Name", "Text", "URL", "DurationMinutes"];
-    const rows = expiredLogs.map(l => [
+
+    if (expiredLogs.length === 0) {
+      console.log("[Purge] ✓ No logs older than 48h found. Nothing to purge.");
+      return;
+    }
+
+    console.log(`[Purge] Found ${expiredLogs.length} logs older than ${cutoffDate.toISOString()}. Building CSV...`);
+
+    // Build CSV archive
+    const csvHeaders = ["Timestamp", "Type", "RoomId", "SessionId", "ClientIP", "Role", "Name", "Text", "URL", "DurationMinutes"];
+    const csvRows = expiredLogs.map(l => [
       new Date(l.ts || l.createdAt).toISOString(),
-      l.type,
-      l.roomId,
+      l.type || "",
+      l.roomId || "",
       l.sessionId || "",
       l.clientIp || "",
       l.role || "",
@@ -3078,28 +3089,59 @@ async function run48HourPurge() {
       l.url || "",
       l.durationMinutes || ""
     ].join(","));
-    const csvData = headers.join(",") + "\n" + rows.join("\n");
-    
+    const csvData = csvHeaders.join(",") + "\n" + csvRows.join("\n");
+
     const execTime = new Date().toISOString();
-    await sendEmailViaResend({
+    const reportFilename = `purge-report-${execTime.replace(/:/g, '-')}.csv`;
+
+    // Step 1: Email the archive
+    console.log(`[Purge] Emailing archive (${expiredLogs.length} rows) to saad95759@gmail.com...`);
+    const emailSent = await sendEmailViaResend({
       to: "saad95759@gmail.com",
-      subject: `[Watch Stream] 48-Hour Log Purge Report - ${execTime}`,
-      text: `Automated 48-hour purge executed at ${execTime}.\n\nTotal logs purged: ${expiredLogs.length}\nDuration covered: Everything older than ${cutoffDate.toISOString()}.\n\nSee attached CSV for details.`,
-      attachments: [{ filename: `purge-report-${execTime.replace(/:/g, '-')}.csv`, content: csvData }],
+      subject: `[Watch Stream] 48-Hour Log Purge — ${execTime}`,
+      text: [
+        `Automated 48-hour purge executed at ${execTime}.`,
+        ``,
+        `Logs archived : ${expiredLogs.length}`,
+        `Period covered: everything older than ${cutoffDate.toISOString()}`,
+        ``,
+        `See the attached CSV for the full archive.`,
+        `The logs listed above have been permanently deleted from the database.`,
+        `A new 48-hour cycle has started.`,
+      ].join("\n"),
+      attachments: [{ filename: reportFilename, content: csvData }],
     });
+
+    // Step 2: Delete only after confirmed delivery
+    if (emailSent) {
+      console.log("[Purge] ✓ Email delivered. Proceeding with deletion...");
+    } else {
+      console.warn("[Purge] ⚠ Email could not be sent (check RESEND_API_KEY). Deleting logs anyway to prevent unbounded DB growth.");
+    }
 
     const idsToDelete = expiredLogs.map(l => l._id);
     await RoomLog.deleteMany({ _id: { $in: idsToDelete } });
-    console.log(`[Purge] Successfully purged and emailed ${expiredLogs.length} logs.`);
+
+    const nextRun = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    console.log(`[Purge] ✓ Purge complete. Deleted ${expiredLogs.length} logs. Next cycle at: ${nextRun}`);
+
   } catch (err) {
-    console.error("48-Hour Purge failed:", err);
+    console.error("[Purge] ✗ 48-Hour Purge FAILED:", err.message || err);
   }
 }
 
+// Run once 5 minutes after boot (catches any missed window if server was restarted)
 setTimeout(() => {
+  console.log("[Purge] Boot-time check triggered (5 min after startup).");
   run48HourPurge();
-  setInterval(run48HourPurge, 60 * 60 * 1000);
 }, 5 * 60 * 1000);
+
+// Schedule exactly every 48 hours at midnight UTC (0:00 on every even day)
+// Cron: "0 0 */2 * *" = at 00:00 on day 1, 3, 5, 7 ... of every month
+cron.schedule("0 0 */2 * *", () => {
+  console.log("[Purge] ⏰ 48-hour cron trigger fired.");
+  run48HourPurge();
+});
 
 
 // ── yt-dlp auto-updater ───────────────────────────────────────────────────────
