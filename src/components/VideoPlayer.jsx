@@ -40,6 +40,44 @@ export default function VideoPlayer({
   const [errorMsg, setErrorMsg] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Decode proxy URL to retrieve the original target URL for type detection
+  const getOriginalUrl = (url) => {
+    if (!url) return '';
+    try {
+      if (url.includes('/api/hls-proxy')) {
+        const queryPart = url.split('?')[1];
+        if (queryPart) {
+          const params = new URLSearchParams(queryPart);
+          const b64 = params.get('b64');
+          if (b64) {
+            return atob(decodeURIComponent(b64));
+          }
+          const raw = params.get('url');
+          if (raw) return raw;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to extract original URL from proxy URL:', e);
+    }
+    return url;
+  };
+
+  const detectActualType = (url, reportedType) => {
+    if (reportedType === 'hls' || reportedType === 'dash' || reportedType === 'youtube' || reportedType === 'rtc' || reportedType === 'iframe') {
+      return reportedType;
+    }
+    const target = String(getOriginalUrl(url) || url).toLowerCase().split('?')[0].split('#')[0];
+    if (target.endsWith('.m3u8') || target.endsWith('.m3u') || target.includes('manifest.m3u8') || target.includes('format=m3u8') || target.includes('type=m3u8')) {
+      return 'hls';
+    }
+    if (target.endsWith('.mpd') || target.includes('manifest.mpd') || target.includes('format=mpd')) {
+      return 'dash';
+    }
+    return reportedType || 'mp4';
+  };
+
+  const actualType = detectActualType(source, sourceType);
+
   // Helper: wrap any external URL in the backend proxy to bypass CORS
   const proxyUrl = (rawUrl) => {
     if (!rawUrl) return rawUrl;
@@ -57,7 +95,7 @@ export default function VideoPlayer({
   };
 
   // --- EARLY RETURN: IFrame sources (Bilibili etc.) get their own clean mount ---
-  if (sourceType === 'iframe' && source) {
+  if (actualType === 'iframe' && source) {
     return (
       <div id="player-mount" className="player-mount" style={{ position: 'relative', width: '100%', height: '100%' }}>
         <iframe
@@ -98,7 +136,7 @@ export default function VideoPlayer({
   useEffect(() => {
     setErrorMsg(null);
     const video = videoRef.current;
-    if (!video || sourceType === 'youtube' || sourceType === 'rtc' || sourceType === 'iframe' || !source) {
+    if (!video || actualType === 'youtube' || actualType === 'rtc' || actualType === 'iframe' || !source) {
       if (hlsInstance) { hlsInstance.destroy(); setHlsInstance(null); }
       if (dashPlayer) { dashPlayer.destroy(); setDashPlayer(null); }
       if (video) {
@@ -127,7 +165,7 @@ export default function VideoPlayer({
     const handleCanPlay = () => setIsLoading(false);
     video.addEventListener('canplay', handleCanPlay);
 
-    if (sourceType === 'hls') {
+    if (actualType === 'hls') {
       const finalUrl = proxyUrl(source);
       console.log('Attempting to load stream:', finalUrl);
 
@@ -191,7 +229,7 @@ export default function VideoPlayer({
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = finalUrl;
       }
-    } else if (sourceType === 'dash') {
+    } else if (actualType === 'dash') {
       const finalUrl = proxyUrl(source);
       console.log('[VideoPlayer] Attempting DASH load:', finalUrl);
       if (window.dashjs) {
@@ -243,11 +281,11 @@ export default function VideoPlayer({
         videoRef.current.load();
       }
     };
-  }, [source, sourceType, sourcePage, proxyToken]);
+  }, [source, actualType, sourcePage, proxyToken]);
 
   // YouTube API Mount
   useEffect(() => {
-    if (sourceType !== 'youtube' || !source) {
+    if (actualType !== 'youtube' || !source) {
       if (ytPlayer) {
         try { ytPlayer.destroy(); } catch {}
         setYtPlayer(null);
@@ -303,11 +341,11 @@ export default function VideoPlayer({
         try { playerInstance.destroy(); } catch {}
       }
     };
-  }, [source, sourceType]);
+  }, [source, actualType]);
 
   // Synchronize player with state updates
   useEffect(() => {
-    if (sourceType === 'youtube' && ytPlayer && ytPlayer.getPlayerState) {
+    if (actualType === 'youtube' && ytPlayer && ytPlayer.getPlayerState) {
       // YouTube Player Sync
       try {
         const state = ytPlayer.getPlayerState();
@@ -325,7 +363,7 @@ export default function VideoPlayer({
       } catch (err) {
         console.warn('YouTube sync failed', err);
       }
-    } else if (videoRef.current && sourceType !== 'youtube' && sourceType !== 'rtc') {
+    } else if (videoRef.current && actualType !== 'youtube' && actualType !== 'rtc') {
       // HTML5 / HLS / DASH video sync
       const video = videoRef.current;
       const diff = Math.abs(video.currentTime - currentTime);
@@ -338,17 +376,17 @@ export default function VideoPlayer({
         video.pause();
       }
     }
-  }, [currentTime, isPlaying, sourceType, ytPlayer]);
+  }, [currentTime, isPlaying, actualType, ytPlayer]);
 
   // Push playback synchronization loop from Host/Controller to server
   useEffect(() => {
-    if (!canControl || !socket || sourceType === 'rtc' || !source) return;
+    if (!canControl || !socket || actualType === 'rtc' || !source) return;
 
     const interval = setInterval(() => {
       let time = 0;
       let playing = false;
 
-      if (sourceType === 'youtube' && ytPlayer && ytPlayer.getCurrentTime) {
+      if (actualType === 'youtube' && ytPlayer && ytPlayer.getCurrentTime) {
         time = ytPlayer.getCurrentTime() || 0;
         playing = ytPlayer.getPlayerState() === window.YT.PlayerState.PLAYING;
       } else if (videoRef.current) {
@@ -358,7 +396,7 @@ export default function VideoPlayer({
 
       socket.emit('playback-sync', {
         source,
-        sourceType,
+        sourceType: actualType,
         currentTime: time,
         isPlaying: playing,
         title,
@@ -372,12 +410,12 @@ export default function VideoPlayer({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [canControl, socket, source, sourceType, ytPlayer, title, thumbnail]);
+  }, [canControl, socket, source, actualType, ytPlayer, title, thumbnail]);
 
   // RTC Screen / Tab share rendering
   useEffect(() => {
     const rtcVideo = rtcVideoRef.current;
-    if (!rtcVideo || sourceType !== 'rtc') return;
+    if (!rtcVideo || actualType !== 'rtc') return;
     
     if (isSharingSelf && localStream) {
       rtcVideo.srcObject = localStream;
@@ -386,42 +424,42 @@ export default function VideoPlayer({
     }
     
     rtcVideo.play().catch(() => {});
-  }, [sourceType, rtcStream, isSharingSelf, localStream]);
+  }, [actualType, rtcStream, isSharingSelf, localStream]);
 
   const handleQualityChange = (levelId) => {
-    if (sourceType === 'hls' && hlsInstance) {
+    if (actualType === 'hls' && hlsInstance) {
       hlsInstance.currentLevel = levelId;
       setQualityMenuOpen(false);
-    } else if (sourceType === 'dash' && dashPlayer) {
+    } else if (actualType === 'dash' && dashPlayer) {
       dashPlayer.setQualityFor('video', levelId);
       setQualityMenuOpen(false);
     }
   };
 
   const handlePlayPauseOverlayClick = () => {
-    if (!canControl || sourceType === 'youtube') return;
+    if (!canControl || actualType === 'youtube') return;
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
       video.play().catch(() => {});
-      socket.emit('playback-sync', { source, sourceType, currentTime: video.currentTime, isPlaying: true, title, thumbnail });
+      socket.emit('playback-sync', { source, sourceType: actualType, currentTime: video.currentTime, isPlaying: true, title, thumbnail });
     } else {
       video.pause();
-      socket.emit('playback-sync', { source, sourceType, currentTime: video.currentTime, isPlaying: false, title, thumbnail });
+      socket.emit('playback-sync', { source, sourceType: actualType, currentTime: video.currentTime, isPlaying: false, title, thumbnail });
     }
   };
 
   return (
     <div id="player-mount" className="player-mount">
       {/* Empty State */}
-      {!source && sourceType !== 'rtc' && (
+      {!source && actualType !== 'rtc' && (
         <div id="player-empty" className="player-empty">
           <p>{t('player-empty-text')}</p>
         </div>
       )}
 
       {/* HTML5 / HLS / DASH Video Player */}
-      {source && sourceType !== 'youtube' && sourceType !== 'rtc' && (
+      {source && actualType !== 'youtube' && actualType !== 'rtc' && (
         <video
           ref={videoRef}
           id="mp4-player"
@@ -433,7 +471,7 @@ export default function VideoPlayer({
       )}
 
       {/* YouTube Player Wrapper */}
-      {source && sourceType === 'youtube' && (
+      {source && actualType === 'youtube' && (
         <div className="player yt-player" style={{ pointerEvents: canControl ? 'auto' : 'none', width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}>
           <div ref={ytContainerRef} id="yt-player" style={{ width: '100%', height: '100%' }} />
         </div>
@@ -442,7 +480,7 @@ export default function VideoPlayer({
       {/* IFrame Player Wrapper removed — iframes are now handled via early return above */}
 
       {/* RTC Screen Sharing Player */}
-      {sourceType === 'rtc' && (
+      {actualType === 'rtc' && (
         <video
           ref={rtcVideoRef}
           id="rtc-player"
@@ -453,12 +491,12 @@ export default function VideoPlayer({
       )}
 
       {/* Overlay to block interaction for standard users */}
-      {!canControl && sourceType !== 'youtube' && sourceType !== 'iframe' && (
+      {!canControl && actualType !== 'youtube' && actualType !== 'iframe' && (
         <div id="player-overlay" className="player-overlay" />
       )}
 
       {/* Loading Spinner Overlay */}
-      {isLoading && source && !errorMsg && sourceType !== 'youtube' && sourceType !== 'rtc' && sourceType !== 'iframe' && (
+      {isLoading && source && !errorMsg && actualType !== 'youtube' && actualType !== 'rtc' && actualType !== 'iframe' && (
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
           background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center',
