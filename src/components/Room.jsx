@@ -497,6 +497,10 @@ export default function Room({ roomId, onLeave }) {
       setIsPlaying(playing);
     };
 
+    const onVotesUpdated = ({ votes }) => {
+      setVotes(votes || []);
+    };
+
     socket.on('state', onState);
     socket.on('room-update', onRoomUpdate);
     socket.on('join-error', onJoinError);
@@ -510,6 +514,7 @@ export default function Room({ roomId, onLeave }) {
     socket.on('pause', onPause);
     socket.on('seek', onSeek);
     socket.on('playback-sync', onPlaybackSync);
+    socket.on('votes-updated', onVotesUpdated);
 
     return () => {
       socket.off('connect', handleJoin);
@@ -526,6 +531,7 @@ export default function Room({ roomId, onLeave }) {
       socket.off('pause', onPause);
       socket.off('seek', onSeek);
       socket.off('playback-sync', onPlaybackSync);
+      socket.off('votes-updated', onVotesUpdated);
     };
   }, [socket, roomId]);
 

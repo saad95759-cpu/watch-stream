@@ -197,15 +197,16 @@ export default function ChatBox({
     const ytId = m ? m[1] : null;
 
     if (socket) {
+      const eventName = activeTab === 'queue' ? 'queue-suggest' : 'suggest-video';
       if (ytId) {
-        socket.emit('suggest-video', {
+        socket.emit(eventName, {
           url,
           title: 'YouTube Video',
           thumbnail: `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`,
         });
       } else {
         const title = url.split('/').pop() || 'Video Link';
-        socket.emit('suggest-video', {
+        socket.emit(eventName, {
           url,
           title,
           thumbnail: null,
@@ -754,6 +755,25 @@ export default function ChatBox({
                 })
             )}
           </div>
+          {myRole === 'muted' ? (
+            <div id="suggest-muted-votes" className="muted-notice">
+              Muted users cannot suggest videos.
+            </div>
+          ) : (
+            <form id="suggest-form-votes" className="suggest-form" onSubmit={handleSuggest}>
+              <input
+                id="suggest-url-votes"
+                type="url"
+                placeholder={t('suggest-placeholder')}
+                value={suggestUrl}
+                onChange={(e) => setSuggestUrl(e.target.value)}
+                required
+              />
+              <button type="submit" className="btn btn-primary">
+                {t('suggest-btn')}
+              </button>
+            </form>
+          )}
         </div>
       )}
 
