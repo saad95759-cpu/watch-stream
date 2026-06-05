@@ -186,7 +186,7 @@ export default function Room({ roomId, onLeave }) {
   const [scannerUrl, setScannerUrl] = useState('');
   const [pasteHtmlText, setPasteHtmlText] = useState('');
   const [scanResults, setScanResults] = useState(null);
-  const [scanResult, setScanResult] = useState(null);
+  const [scanMetadata, setScanMetadata] = useState(null);
   const [scannerStatus, setScannerStatus] = useState('');
   const [scannerStatusKind, setScannerStatusKind] = useState('');
   const [scanning, setScanning] = useState(false);
@@ -1000,7 +1000,7 @@ export default function Room({ roomId, onLeave }) {
 
       if (deepData.allStreams && deepData.allStreams.length > 0) {
         setScanResults(deepData.allStreams);
-        setScanResult(deepData);
+        setScanMetadata({ title: deepData.title, thumbnail: deepData.thumbnail });
         setExtractToken(deepData.proxyToken || '');
         setScanSourceUrl(targetUrl);
         setExtractedMeta({ title: deepData.title || '', thumbnail: deepData.thumbnail || null });
@@ -1083,7 +1083,7 @@ export default function Room({ roomId, onLeave }) {
         setPasteModalOpen(false);
       } else if (data.streams && data.streams.length > 0) {
         setScanResults(data.streams);
-        setScanResult(data);
+        setScanMetadata({ title: data.title, thumbnail: data.thumbnail });
         setExtractToken(data.proxyToken || '');
         setScannerStatus(`Found ${data.streams.length} stream(s).`);
         setScannerStatusKind('ok');
@@ -1143,7 +1143,7 @@ export default function Room({ roomId, onLeave }) {
         }
       } else if (data.streams && data.streams.length > 0) {
         setScanResults(data.streams);
-        setScanResult(data);
+        setScanMetadata({ title: data.title, thumbnail: data.thumbnail });
         setExtractToken('');
         setScannerStatus(`Found ${data.streams.length} streams.`);
         setScannerStatusKind('ok');
@@ -1928,14 +1928,12 @@ export default function Room({ roomId, onLeave }) {
             {scanResults && (
               <div id="scanner-results" style={{ textAlign: 'left', background: 'var(--bg)', padding: '8px', borderRadius: '8px' }}>
                 {/* Video Preview Card */}
-                {scanResult?.thumbnail && (
+                {scanMetadata?.thumbnail && (
                   <div 
-                    className="mb-4 flex flex-col items-center bg-[#0f172a] rounded-xl overflow-hidden border border-gray-700 shadow-lg"
+                    className="mb-4 w-full bg-[#0f172a] rounded-xl overflow-hidden border border-gray-700 shadow-lg"
                     style={{
                       marginBottom: '16px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
+                      width: '100%',
                       backgroundColor: '#0f172a',
                       borderRadius: '12px',
                       overflow: 'hidden',
@@ -1944,8 +1942,8 @@ export default function Room({ roomId, onLeave }) {
                     }}
                   >
                     <img 
-                      src={scanResult.thumbnail} 
-                      alt={scanResult?.title || "Video Preview"} 
+                      src={scanMetadata.thumbnail} 
+                      alt={scanMetadata?.title || "Video Preview"} 
                       className="w-full max-h-48 object-cover object-center"
                       style={{
                         width: '100%',
@@ -1955,20 +1953,20 @@ export default function Room({ roomId, onLeave }) {
                       }}
                       onError={(e) => { e.target.style.display = 'none'; }} 
                     />
-                    {scanResult?.title && (
+                    {scanMetadata?.title && (
                       <div 
-                        className="p-3 w-full text-center bg-gray-800/50"
+                        className="p-2 w-full text-center bg-gray-800/80"
                         style={{
-                          padding: '12px',
+                          padding: '8px',
                           width: '100%',
                           textAlign: 'center',
-                          backgroundColor: 'rgba(31, 41, 55, 0.5)',
+                          backgroundColor: 'rgba(31, 41, 55, 0.8)',
                         }}
                       >
                          <h3 
-                           className="text-gray-100 text-sm md:text-base font-semibold truncate px-2"
+                           className="text-gray-200 text-sm font-semibold truncate px-2"
                            style={{
-                             color: '#f3f4f6',
+                             color: '#e5e7eb',
                              fontSize: '14px',
                              fontWeight: 600,
                              overflow: 'hidden',
@@ -1979,7 +1977,7 @@ export default function Room({ roomId, onLeave }) {
                              margin: 0,
                            }}
                          >
-                           {scanResult.title}
+                           {scanMetadata.title}
                          </h3>
                       </div>
                     )}
