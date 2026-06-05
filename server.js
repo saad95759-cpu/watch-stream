@@ -143,8 +143,9 @@ async function sendEmailViaHttpOrSmtp({ to, subject, text, filename, content }) 
 
   const dynamicTransporter = nodemailer.createTransport({
     host: resolvedIp,
-    port: 587,
-    secure: false,          // true = SSL on 465, false = STARTTLS on 587
+    port: 465,
+    secure: true,           // SSL on port 465 — avoids STARTTLS negotiation issues
+    family: 4,              // FORCE IPv4 TO BYPASS RENDER IPv6 NETWORK ERRORS (ENETUNREACH/ETIMEDOUT)
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS
@@ -3197,18 +3198,13 @@ async function run48HourPurge() {
     const csvData = headers.join(",") + "\n" + rows.join("\n");
     
     const execTime = new Date().toISOString();
-    const mailOptions = {
-      from: process.env.SMTP_USER,
+    await sendEmailViaHttpOrSmtp({
       to: "saad95759@gmail.com",
       subject: `[Watch Stream] 48-Hour Log Purge Report - ${execTime}`,
       text: `Automated 48-hour purge executed at ${execTime}.\n\nTotal logs purged: ${expiredLogs.length}\nDuration covered: Everything older than ${cutoffDate.toISOString()}.\n\nSee attached CSV for details.`,
-      attachments: [{
-        filename: `purge-report-${execTime.replace(/:/g, '-')}.csv`,
-        content: csvData
-      }]
-    };
-    
-    await transporter.sendMail(mailOptions);
+      filename: `purge-report-${execTime.replace(/:/g, '-')}.csv`,
+      content: csvData
+    });
     
     const idsToDelete = expiredLogs.map(l => l._id);
     await RoomLog.deleteMany({ _id: { $in: idsToDelete } });
@@ -3272,15 +3268,13 @@ cron.schedule("0 */12 * * *", async () => {
       csv += `${ts},${rid},${type},"${name}","${text}"\n`;
     }
 
-    const mailOptions = {
-      from: process.env.SMTP_USER,
+    await sendEmailViaHttpOrSmtp({
       to: receiver,
       subject: `Bi-Daily System Report - Watch Stream`,
       text: `Attached is the automated bi-daily CSV report.`,
-      attachments: [{ filename: `system-report-${Date.now()}.csv`, content: csv }]
-    };
-
-    await transporter.sendMail(mailOptions);
+      filename: `system-report-${Date.now()}.csv`,
+      content: csv
+    });
     console.log("[CRON] Bi-daily email report sent.");
   } catch (err) {
     console.error("[CRON] Failed to send bi-daily report:", err);
