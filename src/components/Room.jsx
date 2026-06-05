@@ -172,6 +172,12 @@ export default function Room({ roomId, onLeave }) {
 
   const [sourceInput, setSourceInput] = useState('');
   const [extractStatus, setExtractStatus] = useState('');
+
+  // Floating emoji reactions overlay
+  const [floatingReactions, setFloatingReactions] = useState([]);
+
+  // Extracted video metadata for quality picker thumbnail
+  const [extractedMeta, setExtractedMeta] = useState({ title: '', thumbnail: null });
   const [extractKind, setExtractKind] = useState('');
 
   // Scanner modal flow
@@ -206,6 +212,19 @@ export default function Room({ roomId, onLeave }) {
     }
   }, [theme]);
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
+
+  // PWA Web Share Target — intercept URLs shared from the mobile browser
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sharedUrl = params.get('shared_url') || params.get('text');
+    if (sharedUrl) {
+      const urlMatch = sharedUrl.match(/https?:\/\/[^\s]+/);
+      if (urlMatch) {
+        setSourceInput(urlMatch[0]);
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }
+  }, []);
 
   // Rave App - Fetch Audio Devices
   useEffect(() => {
@@ -495,6 +514,15 @@ export default function Room({ roomId, onLeave }) {
     socket.on('seek', onSeek);
     socket.on('playback-sync', onPlaybackSync);
 
+    // Floating emoji reactions broadcasted by server to all room members
+    const onReaction = ({ emoji }) => {
+      const id = Date.now() + Math.random();
+      const randomX = Math.floor(Math.random() * 60) + 20; // 20%–80% horizontal spread
+      setFloatingReactions(prev => [...prev, { id, emoji, x: randomX }]);
+      setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== id)), 3000);
+    };
+    socket.on('reaction', onReaction);
+
     return () => {
       socket.off('connect', handleJoin);
       socket.off('state', onState);
@@ -510,6 +538,7 @@ export default function Room({ roomId, onLeave }) {
       socket.off('pause', onPause);
       socket.off('seek', onSeek);
       socket.off('playback-sync', onPlaybackSync);
+      socket.off('reaction', onReaction);
     };
   }, [socket, roomId]);
 
@@ -971,7 +1000,8 @@ export default function Room({ roomId, onLeave }) {
       if (deepData.allStreams && deepData.allStreams.length > 0) {
         setScanResults(deepData.allStreams);
         setExtractToken(deepData.proxyToken || '');
-        setScanSourceUrl(targetUrl);  // remember original URL for fresh re-extraction on quality pick
+        setScanSourceUrl(targetUrl);
+        setExtractedMeta({ title: deepData.title || '', thumbnail: deepData.thumbnail || null });
         setPasteModalOpen(true);
         setExtractStatus('');
         return;
@@ -1287,7 +1317,7 @@ export default function Room({ roomId, onLeave }) {
 
       <main className="room-body">
         <div className="stage">
-          <div className="player-shell">
+          <div className="player-shell" style={{ position: 'relative' }}>
             <VideoPlayer
               source={source}
               sourceType={sourceType}
@@ -1308,6 +1338,29 @@ export default function Room({ roomId, onLeave }) {
               isSharingSelf={isSharingSelf}
               mediaVolume={mediaVolume}
             />
+
+            {/* ── Floating Emoji Reactions Overlay ── */}
+            {floatingReactions.length > 0 && (
+              <div
+                style={{
+                  position: 'absolute', inset: 0,
+                  pointerEvents: 'none',
+                  zIndex: 100,
+                  overflow: 'hidden',
+                }}
+                aria-hidden="true"
+              >
+                {floatingReactions.map((r) => (
+                  <span
+                    key={r.id}
+                    className="reaction-float"
+                    style={{ left: `${r.x}%` }}
+                  >
+                    {r.emoji}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {canControl ? (
@@ -1869,7 +1922,24 @@ export default function Room({ roomId, onLeave }) {
             )}
 
             {scanResults && (
-              <div id="scanner-results" style={{ textAlign: 'left', maxHeight: '200px', overflowY: 'auto', background: 'var(--bg)', padding: '8px', borderRadius: '8px' }}>
+              <div id="scanner-results" style={{ textAlign: 'left', background: 'var(--bg)', padding: '8px', borderRadius: '8px' }}>
+                {/* Video thumbnail preview */}
+                {extractedMeta.thumbnail && (
+                  <img
+                    src={extractedMeta.thumbnail}
+                    alt="Video preview"
+                    style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px', display: 'block' }}
+                    onError={(e) => { e.target.style.display = 'none'; }}
+                  />
+                )}
+                {/* Video title */}
+                {extractedMeta.title && (
+                  <p style={{ fontSize: '15px', fontWeight: 'bold', margin: '0 0 10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                    {extractedMeta.title}
+                  </p>
+                )}
+                {/* Quality stream buttons */}
+                <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
                 {scanResults.map((s, idx) => {
                   const targetPage = scannerUrl || pasteHtmlText ? 'Scan Result' : 'Extracted Stream';
                   let proxiedUrl = s.url;
@@ -1912,6 +1982,7 @@ export default function Room({ roomId, onLeave }) {
                     </button>
                   );
                 })}
+                </div>
               </div>
             )}
 
