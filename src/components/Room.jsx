@@ -1641,7 +1641,7 @@ export default function Room({ roomId, onLeave }) {
             />
           </div>
 
-          <div className="player-options-bar" style={{ display: 'flex', gap: '8px', padding: '10px', background: 'var(--bg-elev)', borderRadius: '8px', marginTop: '8px', border: '1px solid var(--border)', flexWrap: 'wrap', alignItems: 'center', zIndex: 10 }}>
+          <div className="player-options-bar" style={{ display: 'flex', gap: '8px', padding: '10px', background: 'var(--bg-elev)', borderRadius: '8px', marginTop: '8px', border: '1px solid var(--border)', flexWrap: 'wrap', alignItems: 'center', position: 'relative', zIndex: 10 }}>
             {/* Skip / Play Next (Host/Admin only) */}
             {canControl && queue && queue.length > 0 && (
               <button

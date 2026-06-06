@@ -753,6 +753,8 @@ input[type="text"]::placeholder, input[type="url"]::placeholder, input[type="pas
 }
 
 .source-bar {
+  position: relative;
+  z-index: 20;
   border-top: 1px solid var(--border);
   background: var(--bg-elev);
   backdrop-filter: blur(var(--glass-blur));
