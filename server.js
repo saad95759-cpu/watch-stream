@@ -1511,6 +1511,7 @@ function getOrCreateRoom(id) {
       approvedClientIds: new Set(),
       pinnedMessage: null,
       slowModeDelay: 0,
+      locked: false,
       analytics: { totalMessages: 0, totalReactions: 0, peakViewers: 0, sessionStart: Date.now() },
     };
     rooms.set(id, room);
@@ -1778,6 +1779,7 @@ function broadcastRoomUpdate(roomId) {
       history: room.history,
       pinnedMessage: room.pinnedMessage || null,
       slowModeDelay: room.slowModeDelay || 0,
+      locked: !!room.locked,
     });
   }
 }
@@ -2010,8 +2012,26 @@ io.on("connection", (socket) => {
     }
     try {
       const allLoggedRooms = await RoomLog.distinct('roomId');
-      const closedRooms = allLoggedRooms.filter(id => !rooms.has(id));
-      socket.emit("admin-rooms", { rooms: roomList, closedRooms });
+      const closedRoomIds = allLoggedRooms.filter(id => !rooms.has(id));
+      
+      const closedRoomsList = [];
+      for (const rid of closedRoomIds) {
+        const lastLog = await RoomLog.findOne({ roomId: rid }).sort({ ts: -1 }).lean();
+        const logCount = await RoomLog.countDocuments({ roomId: rid });
+        closedRoomsList.push({
+          id: rid,
+          lastActive: lastLog ? (lastLog.ts || lastLog.createdAt) : null,
+          logCount
+        });
+      }
+      
+      closedRoomsList.sort((a, b) => {
+        const tA = a.lastActive ? new Date(a.lastActive).getTime() : 0;
+        const tB = b.lastActive ? new Date(b.lastActive).getTime() : 0;
+        return tB - tA;
+      });
+
+      socket.emit("admin-rooms", { rooms: roomList, closedRooms: closedRoomsList });
     } catch (err) {
       console.error(err);
       socket.emit("admin-rooms", { rooms: roomList, closedRooms: [] });
@@ -2175,6 +2195,11 @@ io.on("connection", (socket) => {
       room.participants.size === 0 ||
       wasApproved ||
       (room.hostKey && typeof hostKey === "string" && hostKey === room.hostKey);
+
+    if (room.locked && !bypassApproval) {
+      socket.emit("join-error", { reason: "locked" });
+      return;
+    }
 
     if (room.requireApproval && !bypassApproval) {
       socket.currentRoomId = roomId;
@@ -2859,6 +2884,22 @@ io.on("connection", (socket) => {
       hasPassword: !!ctx.room.password,
       password: ctx.room.password,
     });
+  });
+
+  socket.on("soundboard-play", ({ sound }) => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    io.to(ctx.rid).emit("soundboard-play", { sound, userName: socket.userName });
+  });
+
+  socket.on("set-room-locked", ({ enabled }) => {
+    const ctx = requireMember();
+    if (!ctx) return;
+    const isHost = socket.id === ctx.room.roomHostId;
+    const isAdmin = ctx.room.admins.has(socket.id);
+    if (!isHost && !isAdmin && !socket.isSuperAdmin) return;
+    ctx.room.locked = !!enabled;
+    broadcastRoomUpdate(ctx.rid);
   });
 
   socket.on("set-room-approval", ({ enabled }) => {

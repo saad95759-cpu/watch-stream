@@ -653,20 +653,20 @@ export default function ChatBox({
             </div>
           </div>
 
-          {canControl && (
-            <div className="queue-section" id="suggestions-section">
-              <div className="queue-header">{t('queue-suggestions')}</div>
-              <div id="suggestions-list" className="queue-list">
-                {suggestions.length === 0 ? (
-                  <div className="vote-empty">No suggestions</div>
-                ) : (
-                  suggestions.map((item) => (
-                    <div key={item.id} className="vote-card">
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <div className="vote-url">{item.url}</div>
-                          <div className="vote-meta">Suggested by {item.addedByName || 'Unknown'}</div>
-                        </div>
+          <div className="queue-section" id="suggestions-section">
+            <div className="queue-header">{t('queue-suggestions')}</div>
+            <div id="suggestions-list" className="queue-list">
+              {suggestions.length === 0 ? (
+                <div className="vote-empty">No suggestions</div>
+              ) : (
+                suggestions.map((item) => (
+                  <div key={item.id} className="vote-card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div className="vote-url">{item.title || item.url}</div>
+                        <div className="vote-meta">Suggested by {item.addedByName || 'Unknown'}</div>
+                      </div>
+                      {canControl && (
                         <div className="vote-actions">
                           <button className="btn btn-primary btn-sm" onClick={() => socket?.emit('queue-approve', { id: item.id })}>
                             Approve
@@ -675,13 +675,13 @@ export default function ChatBox({
                             Reject
                           </button>
                         </div>
-                      </div>
+                      )}
                     </div>
-                  ))
-                )}
-              </div>
+                  </div>
+                ))
+              )}
             </div>
-          )}
+          </div>
 
           {myRole === 'muted' ? (
             <div id="suggest-muted" className="muted-notice">
@@ -691,7 +691,7 @@ export default function ChatBox({
             <form id="suggest-form" className="suggest-form" onSubmit={handleSuggest}>
               <input
                 id="suggest-url"
-                type="url"
+                type="text"
                 placeholder={t('suggest-placeholder')}
                 value={suggestUrl}
                 onChange={(e) => setSuggestUrl(e.target.value)}
@@ -763,7 +763,7 @@ export default function ChatBox({
             <form id="suggest-form-votes" className="suggest-form" onSubmit={handleSuggest}>
               <input
                 id="suggest-url-votes"
-                type="url"
+                type="text"
                 placeholder={t('suggest-placeholder')}
                 value={suggestUrl}
                 onChange={(e) => setSuggestUrl(e.target.value)}

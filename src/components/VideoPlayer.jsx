@@ -22,6 +22,11 @@ export default function VideoPlayer({
   rtcStream,
   localStream,
   isSharingSelf,
+  mediaVolume,
+  cinemaMode = false,
+  ambientGlow = false,
+  dataSaver = false,
+  subtitleUrl = '',
 }) {
   const { t } = useTranslation();
   const { socket } = useSocket();
@@ -39,6 +44,74 @@ export default function VideoPlayer({
   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [glowColor, setGlowColor] = useState('rgba(168, 85, 247, 0.4)');
+
+  useEffect(() => {
+    if (!ambientGlow) {
+      setGlowColor('transparent');
+      return;
+    }
+
+    let active = true;
+    const canvas = document.createElement('canvas');
+    canvas.width = 10;
+    canvas.height = 10;
+    const ctx = canvas.getContext('2d');
+
+    const updateGlow = () => {
+      if (!active) return;
+      if (videoRef.current && !videoRef.current.paused && !videoRef.current.ended) {
+        try {
+          ctx.drawImage(videoRef.current, 0, 0, 10, 10);
+          const imgData = ctx.getImageData(0, 0, 10, 10).data;
+          let r = 0, g = 0, b = 0;
+          for (let i = 0; i < imgData.length; i += 4) {
+            r += imgData[i];
+            g += imgData[i+1];
+            b += imgData[i+2];
+          }
+          const pixels = imgData.length / 4;
+          r = Math.floor(r / pixels);
+          g = Math.floor(g / pixels);
+          b = Math.floor(b / pixels);
+          
+          const max = Math.max(r, g, b);
+          if (max < 40) {
+            r = 30; g = 41; b = 59;
+          }
+          
+          setGlowColor(`rgba(${r}, ${g}, ${b}, 0.6)`);
+        } catch (e) {
+          const time = Date.now() / 1000;
+          const r = Math.floor(100 + Math.sin(time) * 30);
+          const g = Math.floor(80 + Math.cos(time) * 20);
+          const b = Math.floor(180 + Math.sin(time + 1) * 40);
+          setGlowColor(`rgba(${r}, ${g}, ${b}, 0.5)`);
+        }
+      } else {
+        const time = Date.now() / 2000;
+        const pulse = 0.3 + Math.sin(time) * 0.1;
+        setGlowColor(`rgba(99, 102, 241, ${pulse})`);
+      }
+      setTimeout(updateGlow, 500);
+    };
+
+    updateGlow();
+
+    return () => {
+      active = false;
+    };
+  }, [ambientGlow, source, hlsInstance]);
+
+  useEffect(() => {
+    if (dataSaver && hlsInstance && levels.length > 0) {
+      hlsInstance.currentLevel = 0;
+      setCurrentLevel(levels[0].name);
+    } else if (!dataSaver && hlsInstance) {
+      hlsInstance.currentLevel = -1;
+      setCurrentLevel('Auto');
+    }
+  }, [dataSaver, hlsInstance, levels]);
 
   // Decode proxy URL to retrieve the original target URL for type detection
   const getOriginalUrl = (url) => {
@@ -430,7 +503,15 @@ export default function VideoPlayer({
   };
 
   return (
-    <div id="player-mount" className="player-mount">
+    <div 
+      id="player-mount" 
+      className="player-mount"
+      style={{
+        boxShadow: ambientGlow ? `0 0 50px 10px ${glowColor}` : 'none',
+        transition: 'box-shadow 0.8s ease',
+        borderRadius: '12px'
+      }}
+    >
       {/* Empty State */}
       {!source && actualType !== 'rtc' && (
         <div id="player-empty" className="player-empty">
@@ -440,14 +521,36 @@ export default function VideoPlayer({
 
       {/* HTML5 / HLS / DASH Video Player */}
       {source && actualType !== 'youtube' && actualType !== 'rtc' && (
-        <video
-          ref={videoRef}
-          id="mp4-player"
-          className="player media-player"
-          playsInline
-          controls={canControl}
-          style={{ pointerEvents: canControl ? 'auto' : 'none' }}
-        />
+        <div style={dataSaver ? { height: '80px', display: 'flex', flexDirection: 'column', justifyContent: 'center', background: '#1e293b', borderRadius: '8px', padding: '12px', width: '100%' } : { width: '100%', height: '100%' }}>
+          {dataSaver && (
+            <div style={{ textAlign: 'center', color: '#38bdf8', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px' }}>
+              🍃 Audio-Only / Data Saver Active
+            </div>
+          )}
+          <video
+            ref={videoRef}
+            id="mp4-player"
+            className="player media-player"
+            playsInline
+            controls={canControl}
+            style={{ 
+              pointerEvents: canControl ? 'auto' : 'none',
+              height: dataSaver ? '36px' : '100%',
+              width: '100%',
+              background: dataSaver ? 'transparent' : 'black'
+            }}
+          >
+            {subtitleUrl && (
+              <track
+                label="Local Subtitles"
+                kind="subtitles"
+                srcLang="en"
+                src={subtitleUrl}
+                default
+              />
+            )}
+          </video>
+        </div>
       )}
 
       {/* YouTube Player Wrapper */}

@@ -428,13 +428,17 @@ export default function AdminDashboard({ onBack }) {
               {closedRooms.length === 0 ? (
                 <p className="hint">No closed rooms.</p>
               ) : (
-                closedRooms.map((id) => (
-                  <div key={id} className="admin-room-card">
+                closedRooms.map((room) => (
+                  <div key={room.id} className="admin-room-card">
                     <div className="admin-room-info">
-                      <div className="admin-room-id">{id}</div>
+                      <div className="admin-room-id">{room.id}</div>
+                      <div className="admin-room-meta">
+                        {room.logCount} log{room.logCount !== 1 ? 's' : ''}
+                        {room.lastActive && ` • Last Active: ${new Date(room.lastActive).toLocaleString()}`}
+                      </div>
                     </div>
                     <div className="admin-room-actions">
-                      <button className="btn btn-ghost btn-sm" onClick={() => handleFetchLogs(id)}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleFetchLogs(room.id)}>
                         Logs
                       </button>
                     </div>
@@ -481,15 +485,38 @@ export default function AdminDashboard({ onBack }) {
                 <p className="hint">No logs found.</p>
               ) : (
                 roomLogs.map((l, idx) => {
-                  const ts = new Date(l.ts || l.timestamp).toLocaleString();
+                  const ts = new Date(l.ts || l.createdAt || l.timestamp).toLocaleString();
                   let text = '';
-                  if (l.type === 'chat' || l.type === 'text') text = `[Chat] <span style="color:var(--primary);">${l.name}</span>: ${l.text}`;
-                  else if (l.type === 'system') text = `[Sys] <span style="color:#ffaa00;">${l.text}</span>`;
-                  else if (l.type === 'video') text = `[Video] <span style="color:var(--primary);">${l.playedByName || 'Unknown'}</span> set source: ${l.url}`;
-                  else text = JSON.stringify(l);
+                  const typeUpper = (l.type || 'info').toUpperCase();
+                  
+                  if (l.type === 'chat' || l.type === 'text') {
+                    text = `[CHAT] <strong style="color:var(--primary);">${l.name}</strong>: ${l.text}`;
+                  } else if (l.type === 'system') {
+                    text = `[SYSTEM] <span style="color:#ffaa00;">${l.text}</span>`;
+                  } else if (l.type === 'video') {
+                    text = `[VIDEO] <strong style="color:var(--primary);">${l.playedByName || 'Unknown'}</strong> loaded: <a href="${l.url}" target="_blank" style="color:var(--primary); text-decoration: underline;">${l.url}</a>`;
+                  } else if (l.type === 'video-duration') {
+                    text = `[PLAYBACK] User <strong style="color:var(--primary);">${l.name}</strong> watched ${l.durationMinutes} minutes`;
+                  } else if (l.type === 'creation') {
+                    text = `[CREATION] Room created by <strong style="color:var(--primary);">${l.name || 'Unknown'}</strong>${l.hasPassword ? ' (Password Protected)' : ''}`;
+                  } else if (l.type === 'join') {
+                    text = `[JOIN] User <strong style="color:#48bb78;">${l.name || 'Unknown'}</strong> joined from IP ${l.clientIp || 'N/A'}`;
+                  } else if (l.type === 'leave') {
+                    text = `[LEAVE] User <strong style="color:#e53e3e;">${l.name || 'Unknown'}</strong> left the room`;
+                  } else if (l.type === 'kick') {
+                    text = `[KICK] User <strong style="color:#e53e3e;">${l.name || 'Unknown'}</strong> was kicked`;
+                  } else if (l.type === 'ban') {
+                    text = `[BAN] User <strong style="color:#e53e3e;">${l.name || 'Unknown'}</strong> was banned`;
+                  } else if (l.type === 'mute') {
+                    text = `[MUTE] User <strong style="color:#ed8936;">${l.name || 'Unknown'}</strong> was muted`;
+                  } else if (l.type === 'unmute') {
+                    text = `[UNMUTE] User <strong style="color:#48bb78;">${l.name || 'Unknown'}</strong> was unmuted`;
+                  } else {
+                    text = `[${typeUpper}] ${l.text || l.url || JSON.stringify(l)}`;
+                  }
                   
                   return (
-                    <div key={idx} style={{ padding: '6px', borderBottom: '1px solid var(--border)' }}>
+                    <div key={idx} style={{ padding: '6px', borderBottom: '1px solid var(--border)', lineHeight: '1.4' }}>
                       <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{ts}</span>
                       <br />
                       <span dangerouslySetInnerHTML={{ __html: text }} />

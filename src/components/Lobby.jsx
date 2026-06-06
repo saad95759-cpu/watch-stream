@@ -231,7 +231,16 @@ export default function Lobby({ onCreateRoom, onJoinRoom, onOpenAdmin }) {
         <button id="lobby-theme-toggle" className="btn btn-ghost" onClick={toggleTheme}>
           {theme === 'light' ? '☀️ Theme' : '🌙 Theme'}
         </button>
-        <button className="btn btn-ghost" onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}>
+        <button 
+          id="lobby-lang-btn" 
+          type="button" 
+          className="btn btn-ghost" 
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setLang(lang === 'en' ? 'ar' : 'en');
+          }}
+        >
           🌐 {lang.toUpperCase()}
         </button>
       </div>

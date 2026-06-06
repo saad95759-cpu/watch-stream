@@ -2616,3 +2616,37 @@ html, body {
   will-change: transform, opacity;
 }
 
+/* ── Cinema Mode Styles ── */
+.cinema-mode-active {
+  background-color: #000000 !important;
+}
+.cinema-mode-active .room-header {
+  opacity: 0.1;
+  transition: opacity 0.3s ease;
+}
+.cinema-mode-active .room-header:hover {
+  opacity: 1;
+}
+.cinema-mode-active .chat-panel {
+  display: none !important;
+}
+.cinema-mode-active .source-bar {
+  opacity: 0.1;
+  transition: opacity 0.3s ease;
+}
+.cinema-mode-active .source-bar:hover {
+  opacity: 1;
+}
+.cinema-mode-active .player-options-bar {
+  opacity: 0.1;
+  transition: opacity 0.3s ease;
+}
+.cinema-mode-active .player-options-bar:hover {
+  opacity: 1;
+}
+
+/* ── Ambient Glow Backdrop ── */
+.player-mount {
+  will-change: box-shadow;
+}
+

@@ -61,6 +61,95 @@ const SoundEffects = {
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
         osc.start(now);
         osc.stop(now + 0.25);
+      } else if (type === 'ding') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.exponentialRampToValueAtTime(1200, now + 0.05);
+        osc.frequency.exponentialRampToValueAtTime(880, now + 0.2);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+        osc.start(now);
+        osc.stop(now + 1.2);
+      } else if (type === 'laughter') {
+        for (let i = 0; i < 4; i++) {
+          const t = now + i * 0.2;
+          const laughOsc = ctx.createOscillator();
+          const laughGain = ctx.createGain();
+          laughOsc.type = 'sawtooth';
+          laughOsc.frequency.setValueAtTime(200, t);
+          laughOsc.frequency.exponentialRampToValueAtTime(400, t + 0.04);
+          laughOsc.frequency.exponentialRampToValueAtTime(150, t + 0.16);
+          laughGain.gain.setValueAtTime(0, t);
+          laughGain.gain.linearRampToValueAtTime(0.04, t + 0.02);
+          laughGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+          laughOsc.connect(laughGain);
+          laughGain.connect(ctx.destination);
+          laughOsc.start(t);
+          laughOsc.stop(t + 0.16);
+        }
+      } else if (type === 'drumroll') {
+        const bufferSize = ctx.sampleRate * 1.5;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        let lastOut = 0.0;
+        for (let i = 0; i < bufferSize; i++) {
+          const white = Math.random() * 2 - 1;
+          data[i] = lastOut * 0.95 + white * 0.05;
+          lastOut = data[i];
+        }
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(0, now);
+        noiseGain.gain.linearRampToValueAtTime(0.08, now + 0.1);
+        for (let t = 0.1; t < 1.1; t += 0.05) {
+          noiseGain.gain.setValueAtTime(0.08 + Math.sin(t * 50) * 0.03, now + t);
+        }
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
+        
+        const kick = ctx.createOscillator();
+        const kickGain = ctx.createGain();
+        kick.frequency.setValueAtTime(100, now + 1.1);
+        kick.frequency.exponentialRampToValueAtTime(30, now + 1.4);
+        kickGain.gain.setValueAtTime(0, now + 1.1);
+        kickGain.gain.linearRampToValueAtTime(0.15, now + 1.11);
+        kickGain.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
+        
+        noise.connect(noiseGain);
+        noiseGain.connect(ctx.destination);
+        kick.connect(kickGain);
+        kickGain.connect(ctx.destination);
+        
+        noise.start(now);
+        noise.stop(now + 1.4);
+        kick.start(now + 1.1);
+        kick.stop(now + 1.4);
+      } else if (type === 'applause') {
+        const bufferSize = ctx.sampleRate * 1.8;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 1000;
+        filter.Q.value = 1.0;
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+        const applauseGain = ctx.createGain();
+        applauseGain.gain.setValueAtTime(0.05, now);
+        for (let t = 0; t < 1.6; t += 0.06) {
+          applauseGain.gain.setValueAtTime(0.04 + Math.sin(t * 40) * 0.02, now + t);
+        }
+        applauseGain.gain.exponentialRampToValueAtTime(0.001, now + 1.8);
+        
+        noise.connect(filter);
+        filter.connect(applauseGain);
+        applauseGain.connect(ctx.destination);
+        
+        noise.start(now);
+        noise.stop(now + 1.8);
       }
     } catch (e) {
       console.warn('Sound synthesis failed', e);
@@ -148,6 +237,15 @@ export default function Room({ roomId, onLeave }) {
   const [micsDefaultOn, setMicsDefaultOn] = useState(true);
   const [hideJoinLeftAlerts, setHideJoinLeftAlerts] = useState(false);
   const [participantsOnLeft, setParticipantsOnLeft] = useState(false);
+
+  // Player Visual & Control enhancements states
+  const [cinemaMode, setCinemaMode] = useState(false);
+  const [ambientGlow, setAmbientGlow] = useState(false);
+  const [dataSaver, setDataSaver] = useState(false);
+  const [subtitleUrl, setSubtitleUrl] = useState('');
+  const [subtitleName, setSubtitleName] = useState('');
+  const [soundboardOpen, setSoundboardOpen] = useState(false);
+  const [roomLockedSetting, setRoomLockedSetting] = useState(false);
 
   const [languageOption, setLanguageOption] = useState(lang);
   const [windowBgStyle, setWindowBgStyle] = useState('acrylic');
@@ -418,6 +516,7 @@ export default function Room({ roomId, onLeave }) {
       setLocalHistory(state.history || []);
       setSlowModeSetting(state.slowModeDelay || 0);
       setPinnedMessage(state.pinnedMessage || '');
+      setRoomLockedSetting(!!state.locked);
 
       const me = state.participants.find((p) => p.id === state.youId || p.id === myId);
       if (me) {
@@ -429,6 +528,9 @@ export default function Room({ roomId, onLeave }) {
       if (reason === 'password-required') {
         setPasswordModalOpen(true);
         setPasswordError('Password required to join this room.');
+      } else if (reason === 'locked') {
+        alert('This room is currently locked by the host.');
+        onLeave();
       } else if (reason === 'banned') {
         alert('You are banned from this room.');
         onLeave();
@@ -501,6 +603,10 @@ export default function Room({ roomId, onLeave }) {
       setVotes(votes || []);
     };
 
+    const onSoundboardPlay = ({ sound }) => {
+      SoundEffects.play(sound);
+    };
+
     socket.on('state', onState);
     socket.on('room-update', onRoomUpdate);
     socket.on('join-error', onJoinError);
@@ -515,6 +621,7 @@ export default function Room({ roomId, onLeave }) {
     socket.on('seek', onSeek);
     socket.on('playback-sync', onPlaybackSync);
     socket.on('votes-updated', onVotesUpdated);
+    socket.on('soundboard-play', onSoundboardPlay);
 
     return () => {
       socket.off('connect', handleJoin);
@@ -532,6 +639,7 @@ export default function Room({ roomId, onLeave }) {
       socket.off('seek', onSeek);
       socket.off('playback-sync', onPlaybackSync);
       socket.off('votes-updated', onVotesUpdated);
+      socket.off('soundboard-play', onSoundboardPlay);
     };
   }, [socket, roomId]);
 
@@ -1161,12 +1269,76 @@ export default function Room({ roomId, onLeave }) {
   const handleRoomOptionsSave = () => {
     socket?.emit('set-room-approval', { enabled: requireApprovalSetting });
     socket?.emit('set-room-public', { enabled: publicToggleSetting });
+    socket?.emit('set-room-locked', { enabled: roomLockedSetting });
     socket?.emit('set-slow-mode', { delay: slowModeSetting });
     setSettingsOpen(false);
   };
 
+  const handleTriggerPiP = () => {
+    const videoEl = document.getElementById('mp4-player') || document.getElementById('rtc-player');
+    if (videoEl) {
+      if (document.pictureInPictureElement) {
+        document.exitPictureInPicture().catch(console.error);
+      } else {
+        videoEl.requestPictureInPicture().catch(console.error);
+      }
+    } else {
+      alert('Picture-in-Picture is only supported during active video playback.');
+    }
+  };
+
+  const convertSrtToVtt = (srtText) => {
+    return "WEBVTT\n\n" + srtText
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+  };
+
+  const handleSubtitleUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      processSubtitleFile(file);
+    }
+  };
+
+  const processSubtitleFile = (file) => {
+    if (!file.name.endsWith('.srt') && !file.name.endsWith('.vtt')) {
+      alert('Only .srt and .vtt subtitle files are supported.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      let text = event.target.result;
+      if (file.name.endsWith('.srt')) {
+        text = convertSrtToVtt(text);
+      }
+      const blob = new Blob([text], { type: 'text/vtt' });
+      const url = URL.createObjectURL(blob);
+      setSubtitleUrl(url);
+      setSubtitleName(file.name);
+    };
+    reader.readAsText(file);
+  };
+
+  const handlePlaySound = (sound) => {
+    socket?.emit('soundboard-play', { sound });
+    setSoundboardOpen(false);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      processSubtitleFile(file);
+    }
+  };
+
   return (
-    <section id="room" className={`room theme-${theme} bg-style-${windowBgStyle} ${participantsOnLeft ? 'participants-left' : ''}`}>
+    <section id="room" className={`room theme-${theme} bg-style-${windowBgStyle} ${participantsOnLeft ? 'participants-left' : ''} ${cinemaMode ? 'cinema-mode-active' : ''}`}>
       {/* Pinned Broadcast Banner */}
       {pinnedMessage && (
         <div id="global-announcement-banner" className="announcement-banner">
@@ -1200,7 +1372,16 @@ export default function Room({ roomId, onLeave }) {
             {t('room-leave-btn')}
           </button>
           
-          <button className="btn btn-ghost" onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}>
+          <button 
+            id="room-lang-btn" 
+            type="button" 
+            className="btn btn-ghost" 
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setLang(lang === 'en' ? 'ar' : 'en');
+            }}
+          >
             🌐 {lang.toUpperCase()}
           </button>
 
@@ -1267,7 +1448,14 @@ export default function Room({ roomId, onLeave }) {
               <span className={`room-option-badge ${speakerActive ? 'on' : 'off'}`}>{speakerActive ? 'ON' : 'OFF'}</span>
             </button>
 
-            <button className="room-option-item" onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}>
+            <button 
+              className="room-option-item" 
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setLang(lang === 'en' ? 'ar' : 'en');
+              }}
+            >
               <span className="room-option-icon">🌐</span>
               <span>Language</span>
               <span className="room-option-badge">{lang.toUpperCase()}</span>
@@ -1310,7 +1498,12 @@ export default function Room({ roomId, onLeave }) {
 
       <main className="room-body">
         <div className="stage">
-          <div className="player-shell" style={{ position: 'relative' }}>
+          <div 
+            className="player-shell" 
+            style={{ position: 'relative' }}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+          >
             <VideoPlayer
               source={source}
               sourceType={sourceType}
@@ -1330,9 +1523,84 @@ export default function Room({ roomId, onLeave }) {
               localStream={localStream}
               isSharingSelf={isSharingSelf}
               mediaVolume={mediaVolume}
+              cinemaMode={cinemaMode}
+              ambientGlow={ambientGlow}
+              dataSaver={dataSaver}
+              subtitleUrl={subtitleUrl}
             />
+          </div>
 
+          <div className="player-options-bar" style={{ display: 'flex', gap: '8px', padding: '10px', background: 'var(--bg-elev)', borderRadius: '8px', marginTop: '8px', border: '1px solid var(--border)', flexWrap: 'wrap', alignItems: 'center', zIndex: 10 }}>
+            {/* Cinema Mode Toggle */}
+            <button
+              type="button"
+              className={`btn btn-sm ${cinemaMode ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setCinemaMode(!cinemaMode)}
+              title="Toggle Cinema Mode"
+            >
+              🎬 {cinemaMode ? 'Exit Cinema' : 'Cinema Mode'}
+            </button>
 
+            {/* Ambient Glow Toggle */}
+            <button
+              type="button"
+              className={`btn btn-sm ${ambientGlow ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setAmbientGlow(!ambientGlow)}
+              title="Toggle Ambient Glow backdrop"
+            >
+              ✨ Glow
+            </button>
+
+            {/* Picture in Picture */}
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={handleTriggerPiP}
+              title="Open Picture-in-Picture"
+            >
+              📺 PiP
+            </button>
+
+            {/* Data Saver / Audio Only */}
+            <button
+              type="button"
+              className={`btn btn-sm ${dataSaver ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setDataSaver(!dataSaver)}
+              title="Toggle Data Saver"
+            >
+              🍃 Data Saver
+            </button>
+
+            {/* Subtitles Upload Button */}
+            <label className="btn btn-sm btn-ghost" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', margin: 0 }}>
+              💬 {subtitleName ? `Subtitles: ${subtitleName}` : 'Add Subtitles (SRT/VTT)'}
+              <input
+                type="file"
+                accept=".srt,.vtt"
+                style={{ display: 'none' }}
+                onChange={handleSubtitleUpload}
+              />
+            </label>
+
+            {/* Soundboard reactions */}
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className={`btn btn-sm ${soundboardOpen ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setSoundboardOpen(!soundboardOpen)}
+                title="Open Soundboard"
+              >
+                🔊 Soundboard
+              </button>
+              {soundboardOpen && (
+                <div style={{ position: 'absolute', bottom: '100%', left: 0, background: 'var(--bg-elev-2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px', zIndex: 100, display: 'flex', gap: '6px', marginBottom: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
+                  <button type="button" className="btn btn-sm" onClick={() => handlePlaySound('applause')}>👏 Applause</button>
+                  <button type="button" className="btn btn-sm" onClick={() => handlePlaySound('laughter')}>😂 Laugh</button>
+                  <button type="button" className="btn btn-sm" onClick={() => handlePlaySound('drumroll')}>🥁 Drumroll</button>
+                  <button type="button" className="btn btn-sm" onClick={() => handlePlaySound('ding')}>🔔 Ding</button>
+                </div>
+              )}
+            </div>
           </div>
 
           {canControl ? (
@@ -1564,6 +1832,14 @@ export default function Room({ roomId, onLeave }) {
                         type="checkbox"
                         checked={requireApprovalSetting}
                         onChange={(e) => setRequireApprovalSetting(e.target.checked)}
+                      />
+                    </label>
+                    <label className="rave-toggle-row">
+                      <span>Lock Room (prevent new members from joining)</span>
+                      <input
+                        type="checkbox"
+                        checked={roomLockedSetting}
+                        onChange={(e) => setRoomLockedSetting(e.target.checked)}
                       />
                     </label>
                     <label className="rave-toggle-row">
