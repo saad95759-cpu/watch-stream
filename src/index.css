@@ -2666,3 +2666,29 @@ html, body {
   transition: opacity 0.5s ease !important;
 }
 
+/* ── Fullscreen API Support ── */
+#room:fullscreen {
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background-color: #0f172a !important;
+}
+#room:-webkit-full-screen {
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background-color: #0f172a !important;
+}
+

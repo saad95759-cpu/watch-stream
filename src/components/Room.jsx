@@ -21,6 +21,13 @@ const SoundEffects = {
       if (ctx.state === 'suspended') {
         ctx.resume();
       }
+      if (['ding', 'laughter', 'drumroll', 'applause'].includes(type)) {
+        const audio = new Audio(`/watch-party/sounds/${type}.mp3`);
+        audio.volume = type === 'laughter' ? 0.3 : 0.5; // Lower laughter volume slightly
+        audio.play().catch(err => console.error('Audio play failed', err));
+        return;
+      }
+
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
