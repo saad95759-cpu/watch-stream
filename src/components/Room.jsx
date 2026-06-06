@@ -66,90 +66,98 @@ const SoundEffects = {
         osc.frequency.setValueAtTime(880, now);
         osc.frequency.exponentialRampToValueAtTime(1200, now + 0.05);
         osc.frequency.exponentialRampToValueAtTime(880, now + 0.2);
-        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.setValueAtTime(0.04, now);
         gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
         osc.start(now);
         osc.stop(now + 1.2);
       } else if (type === 'laughter') {
-        for (let i = 0; i < 4; i++) {
-          const t = now + i * 0.2;
+        for (let i = 0; i < 5; i++) {
+          const t = now + i * 0.18;
           const laughOsc = ctx.createOscillator();
           const laughGain = ctx.createGain();
-          laughOsc.type = 'sawtooth';
-          laughOsc.frequency.setValueAtTime(200, t);
-          laughOsc.frequency.exponentialRampToValueAtTime(400, t + 0.04);
-          laughOsc.frequency.exponentialRampToValueAtTime(150, t + 0.16);
+          laughOsc.type = 'sine';
+          laughOsc.frequency.setValueAtTime(220 + i * 40, t);
+          laughOsc.frequency.exponentialRampToValueAtTime(440 + i * 80, t + 0.08);
+          laughOsc.frequency.linearRampToValueAtTime(110, t + 0.14);
           laughGain.gain.setValueAtTime(0, t);
-          laughGain.gain.linearRampToValueAtTime(0.04, t + 0.02);
-          laughGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+          laughGain.gain.linearRampToValueAtTime(0.015, t + 0.02);
+          laughGain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
           laughOsc.connect(laughGain);
           laughGain.connect(ctx.destination);
           laughOsc.start(t);
-          laughOsc.stop(t + 0.16);
+          laughOsc.stop(t + 0.15);
         }
       } else if (type === 'drumroll') {
         const bufferSize = ctx.sampleRate * 1.5;
         const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
         const data = buffer.getChannelData(0);
-        let lastOut = 0.0;
         for (let i = 0; i < bufferSize; i++) {
-          const white = Math.random() * 2 - 1;
-          data[i] = lastOut * 0.95 + white * 0.05;
-          lastOut = data[i];
+          data[i] = Math.random() * 2 - 1;
         }
         const noise = ctx.createBufferSource();
         noise.buffer = buffer;
+        
+        const rollFilter = ctx.createBiquadFilter();
+        rollFilter.type = 'lowpass';
+        rollFilter.frequency.setValueAtTime(150, now);
+        
         const noiseGain = ctx.createGain();
         noiseGain.gain.setValueAtTime(0, now);
-        noiseGain.gain.linearRampToValueAtTime(0.08, now + 0.1);
-        for (let t = 0.1; t < 1.1; t += 0.05) {
-          noiseGain.gain.setValueAtTime(0.08 + Math.sin(t * 50) * 0.03, now + t);
+        noiseGain.gain.linearRampToValueAtTime(0.02, now + 0.2);
+        for (let t = 0.2; t < 1.1; t += 0.05) {
+          noiseGain.gain.setValueAtTime(0.018 + Math.sin(t * 60) * 0.008, now + t);
         }
-        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
         
-        const kick = ctx.createOscillator();
-        const kickGain = ctx.createGain();
-        kick.frequency.setValueAtTime(100, now + 1.1);
-        kick.frequency.exponentialRampToValueAtTime(30, now + 1.4);
-        kickGain.gain.setValueAtTime(0, now + 1.1);
-        kickGain.gain.linearRampToValueAtTime(0.15, now + 1.11);
-        kickGain.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
+        const hitOsc = ctx.createOscillator();
+        const hitGain = ctx.createGain();
+        hitOsc.type = 'triangle';
+        hitOsc.frequency.setValueAtTime(90, now + 1.1);
+        hitOsc.frequency.exponentialRampToValueAtTime(30, now + 1.3);
+        hitGain.gain.setValueAtTime(0, now + 1.1);
+        hitGain.gain.linearRampToValueAtTime(0.035, now + 1.11);
+        hitGain.gain.exponentialRampToValueAtTime(0.001, now + 1.3);
         
-        noise.connect(noiseGain);
+        noise.connect(rollFilter);
+        rollFilter.connect(noiseGain);
         noiseGain.connect(ctx.destination);
-        kick.connect(kickGain);
-        kickGain.connect(ctx.destination);
+        
+        hitOsc.connect(hitGain);
+        hitGain.connect(ctx.destination);
         
         noise.start(now);
-        noise.stop(now + 1.4);
-        kick.start(now + 1.1);
-        kick.stop(now + 1.4);
+        noise.stop(now + 1.2);
+        hitOsc.start(now + 1.1);
+        hitOsc.stop(now + 1.3);
       } else if (type === 'applause') {
-        const bufferSize = ctx.sampleRate * 1.8;
+        const bufferSize = ctx.sampleRate * 2.0;
         const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
         const data = buffer.getChannelData(0);
         for (let i = 0; i < bufferSize; i++) {
           data[i] = Math.random() * 2 - 1;
         }
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'bandpass';
-        filter.frequency.value = 1000;
-        filter.Q.value = 1.0;
         const noise = ctx.createBufferSource();
         noise.buffer = buffer;
+        
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 1200;
+        filter.Q.value = 2.0;
+        
         const applauseGain = ctx.createGain();
-        applauseGain.gain.setValueAtTime(0.05, now);
-        for (let t = 0; t < 1.6; t += 0.06) {
-          applauseGain.gain.setValueAtTime(0.04 + Math.sin(t * 40) * 0.02, now + t);
+        applauseGain.gain.setValueAtTime(0, now);
+        applauseGain.gain.linearRampToValueAtTime(0.02, now + 0.2);
+        for (let t = 0.2; t < 1.7; t += 0.08) {
+          applauseGain.gain.setValueAtTime(0.015 + Math.sin(t * 80) * 0.01, now + t);
         }
-        applauseGain.gain.exponentialRampToValueAtTime(0.001, now + 1.8);
+        applauseGain.gain.exponentialRampToValueAtTime(0.001, now + 2.0);
         
         noise.connect(filter);
         filter.connect(applauseGain);
         applauseGain.connect(ctx.destination);
         
         noise.start(now);
-        noise.stop(now + 1.8);
+        noise.stop(now + 2.0);
       }
     } catch (e) {
       console.warn('Sound synthesis failed', e);
@@ -246,6 +254,8 @@ export default function Room({ roomId, onLeave }) {
   const [subtitleName, setSubtitleName] = useState('');
   const [soundboardOpen, setSoundboardOpen] = useState(false);
   const [roomLockedSetting, setRoomLockedSetting] = useState(false);
+  const [isMouseIdle, setIsMouseIdle] = useState(false);
+  const idleTimerRef = useRef(null);
 
   const [languageOption, setLanguageOption] = useState(lang);
   const [windowBgStyle, setWindowBgStyle] = useState('acrylic');
@@ -607,6 +617,12 @@ export default function Room({ roomId, onLeave }) {
       SoundEffects.play(sound);
     };
 
+    const onQueuePlayItem = ({ url }) => {
+      if (canControl) {
+        triggerScanForUrl(url);
+      }
+    };
+
     socket.on('state', onState);
     socket.on('room-update', onRoomUpdate);
     socket.on('join-error', onJoinError);
@@ -622,6 +638,7 @@ export default function Room({ roomId, onLeave }) {
     socket.on('playback-sync', onPlaybackSync);
     socket.on('votes-updated', onVotesUpdated);
     socket.on('soundboard-play', onSoundboardPlay);
+    socket.on('queue-play-item', onQueuePlayItem);
 
     return () => {
       socket.off('connect', handleJoin);
@@ -640,8 +657,51 @@ export default function Room({ roomId, onLeave }) {
       socket.off('playback-sync', onPlaybackSync);
       socket.off('votes-updated', onVotesUpdated);
       socket.off('soundboard-play', onSoundboardPlay);
+      socket.off('queue-play-item', onQueuePlayItem);
     };
-  }, [socket, roomId]);
+  }, [socket, roomId, myRole]);
+
+  // Fullscreen & Mouse Idle UI tracking
+  useEffect(() => {
+    const handleFSChange = () => {
+      const isFS = !!document.fullscreenElement;
+      setCinemaMode(isFS);
+    };
+    document.addEventListener('fullscreenchange', handleFSChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFSChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (cinemaMode) {
+      idleTimerRef.current = setTimeout(() => {
+        setIsMouseIdle(true);
+      }, 2500);
+    } else {
+      setIsMouseIdle(false);
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current);
+      }
+    }
+    return () => {
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current);
+      }
+    };
+  }, [cinemaMode]);
+
+  const handleMouseMove = () => {
+    setIsMouseIdle(false);
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+    }
+    if (cinemaMode) {
+      idleTimerRef.current = setTimeout(() => {
+        setIsMouseIdle(true);
+      }, 2500);
+    }
+  };
 
   // WebRTC Screen/Tab share logic
   useEffect(() => {
@@ -1137,24 +1197,36 @@ export default function Room({ roomId, onLeave }) {
     }
   };
 
-  const handleScanPasteUrl = async () => {
+  const triggerScanForUrl = (url) => {
+    setPasteModalOpen(true);
+    setActiveScannerTab('url');
+    setScannerUrl(url);
+    setScanResults(null);
+    handleScanPasteUrl(url);
+  };
+
+  const handleScanPasteUrl = async (overrideUrl) => {
+    const targetUrl = typeof overrideUrl === 'string' ? overrideUrl : scannerUrl;
+    if (typeof overrideUrl === 'string') {
+      setScannerUrl(overrideUrl);
+    }
     setScanning(true);
     setScannerStatus('Scanning for streams...');
     setScannerStatusKind('info');
 
     // Bilibili IFrame Bypass
-    if (scannerUrl.includes('bilibili.com') || scannerUrl.includes('bilibili.tv')) {
+    if (targetUrl.includes('bilibili.com') || targetUrl.includes('bilibili.tv')) {
       // bilibili.com with BVID → official player embed (works)
-      let bvid = scannerUrl.match(/(?:bvid=|video\/)(BV[a-zA-Z0-9]+)/)?.[1];
+      let bvid = targetUrl.match(/(?:bvid=|video\/)(BV[a-zA-Z0-9]+)/)?.[1];
       if (bvid) {
         socket?.emit('set-source', {
           source: `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1`,
-          sourceType: 'iframe', sourcePage: scannerUrl, title: 'Bilibili Video', thumbnail: null,
+          sourceType: 'iframe', sourcePage: targetUrl, title: 'Bilibili Video', thumbnail: null,
         });
         setPasteModalOpen(false); setScannerStatus(''); setScanning(false); return;
       }
       // bilibili.tv (international) blocks iframe embedding — show error
-      if (scannerUrl.includes('bilibili.tv')) {
+      if (targetUrl.includes('bilibili.tv')) {
         setScannerStatus('⚠️ bilibili.tv blocks embedding. Use "Share Browser Tab" to watch together.');
         setScannerStatusKind('warn');
         setScanning(false);
@@ -1166,7 +1238,7 @@ export default function Room({ roomId, onLeave }) {
       const res = await fetch('/watch-party/api/fetch-scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: scannerUrl }),
+        body: JSON.stringify({ url: targetUrl }),
       });
       const data = await res.json();
 
@@ -1174,7 +1246,7 @@ export default function Room({ roomId, onLeave }) {
         socket?.emit('set-source', {
           source: data.videoId,
           sourceType: 'youtube',
-          sourcePage: scannerUrl,
+          sourcePage: targetUrl,
           title: data.title || 'YouTube Video',
         });
         setScannerStatus('YouTube video loaded!');
@@ -1274,6 +1346,34 @@ export default function Room({ roomId, onLeave }) {
     setSettingsOpen(false);
   };
 
+  const handleCinemaToggle = () => {
+    const roomEl = document.getElementById('room');
+    if (!roomEl) return;
+    if (!document.fullscreenElement) {
+      roomEl.requestFullscreen().then(() => {
+        setCinemaMode(true);
+      }).catch((err) => {
+        console.error('Error enabling fullscreen', err);
+        setCinemaMode(true);
+      });
+    } else {
+      document.exitFullscreen().then(() => {
+        setCinemaMode(false);
+      }).catch((err) => {
+        console.error('Error exiting fullscreen', err);
+        setCinemaMode(false);
+      });
+    }
+  };
+
+  const handleSkipNext = () => {
+    if (queue && queue.length > 0) {
+      triggerScanForUrl(queue[0].url);
+    } else {
+      alert('The watch queue is empty.');
+    }
+  };
+
   const handleTriggerPiP = () => {
     const videoEl = document.getElementById('mp4-player') || document.getElementById('rtc-player');
     if (videoEl) {
@@ -1338,7 +1438,11 @@ export default function Room({ roomId, onLeave }) {
   };
 
   return (
-    <section id="room" className={`room theme-${theme} bg-style-${windowBgStyle} ${participantsOnLeft ? 'participants-left' : ''} ${cinemaMode ? 'cinema-mode-active' : ''}`}>
+    <section 
+      id="room" 
+      className={`room theme-${theme} bg-style-${windowBgStyle} ${participantsOnLeft ? 'participants-left' : ''} ${cinemaMode ? 'cinema-mode-active' : ''} ${isMouseIdle ? 'mouse-idle' : ''}`}
+      onMouseMove={handleMouseMove}
+    >
       {/* Pinned Broadcast Banner */}
       {pinnedMessage && (
         <div id="global-announcement-banner" className="announcement-banner">
@@ -1531,14 +1635,26 @@ export default function Room({ roomId, onLeave }) {
           </div>
 
           <div className="player-options-bar" style={{ display: 'flex', gap: '8px', padding: '10px', background: 'var(--bg-elev)', borderRadius: '8px', marginTop: '8px', border: '1px solid var(--border)', flexWrap: 'wrap', alignItems: 'center', zIndex: 10 }}>
+            {/* Skip / Play Next (Host/Admin only) */}
+            {canControl && queue && queue.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                onClick={handleSkipNext}
+                title="Skip to next video in queue"
+              >
+                ⏭️ Skip Video
+              </button>
+            )}
+
             {/* Cinema Mode Toggle */}
             <button
               type="button"
               className={`btn btn-sm ${cinemaMode ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setCinemaMode(!cinemaMode)}
+              onClick={handleCinemaToggle}
               title="Toggle Cinema Mode"
             >
-              🎬 {cinemaMode ? 'Exit Cinema' : 'Cinema Mode'}
+              🎬 {cinemaMode ? 'Exit Fullscreen' : 'Cinema Mode'}
             </button>
 
             {/* Ambient Glow Toggle */}
@@ -1719,6 +1835,7 @@ export default function Room({ roomId, onLeave }) {
             onClose={() => setChatOpen(false)}
             slowModeDelay={slowModeSetting}
             hideJoinLeftAlerts={hideJoinLeftAlerts}
+            onPlayQueueItem={triggerScanForUrl}
           />
         )}
       </main>

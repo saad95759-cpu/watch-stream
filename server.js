@@ -2256,6 +2256,13 @@ io.on("connection", (socket) => {
     ctx.room.currentTime = 0;
     ctx.room.isPlaying = false;
     ctx.room.lastUpdated = Date.now();
+
+    // Remove matching item from the room queue if it exists
+    const targetScanUrl = (typeof sourcePage === "string" && sourcePage) ? sourcePage : null;
+    const queueIdx = ctx.room.queue.findIndex(item => item.url === targetScanUrl || item.url === source);
+    if (queueIdx !== -1) {
+      ctx.room.queue.splice(queueIdx, 1);
+    }
     
     // Add to history
     const historyEntry = {
@@ -2387,8 +2394,7 @@ io.on("connection", (socket) => {
     if (!socket.isSuperAdmin && ctx.room.roomHostId !== socket.id && !ctx.room.admins.has(socket.id)) return;
     
     if (ctx.room.queue.length > 0) {
-      const nextItem = ctx.room.queue.shift();
-      broadcastRoomUpdate(ctx.rid);
+      const nextItem = ctx.room.queue[0];
       // Trigger extraction for the next item
       io.to(ctx.rid).emit("queue-play-item", { url: nextItem.url });
     }

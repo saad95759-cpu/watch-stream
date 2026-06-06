@@ -2650,3 +2650,19 @@ html, body {
   will-change: box-shadow;
 }
 
+/* ── Mouse Idle Fullscreen Hiding ── */
+.mouse-idle {
+  cursor: none !important;
+}
+.mouse-idle .room-header,
+.mouse-idle .source-bar,
+.mouse-idle .player-options-bar,
+.mouse-idle .video-controls,
+.mouse-idle .video-timeline,
+.mouse-idle .vjs-control-bar,
+.mouse-idle .plyr__controls {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 0.5s ease !important;
+}
+

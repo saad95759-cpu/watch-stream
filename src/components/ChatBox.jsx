@@ -39,6 +39,7 @@ export default function ChatBox({
   onClose,
   slowModeDelay,
   hideJoinLeftAlerts = false,
+  onPlayQueueItem,
 }) {
   const { t } = useTranslation();
   const { socket } = useSocket();
@@ -640,7 +641,10 @@ export default function ChatBox({
                         <div className="vote-meta">Added by {item.addedByName || 'Unknown'}</div>
                       </div>
                       {canControl && (
-                        <div className="vote-actions">
+                        <div className="vote-actions" style={{ display: 'flex', gap: '4px' }}>
+                          <button className="btn btn-primary btn-sm" onClick={() => onPlayQueueItem?.(item.url)}>
+                            Play Now
+                          </button>
                           <button className="btn btn-danger btn-sm" onClick={() => socket?.emit('queue-remove', { id: item.id })}>
                             Remove
                           </button>
